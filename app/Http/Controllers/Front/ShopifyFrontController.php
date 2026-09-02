@@ -37,12 +37,22 @@ class ShopifyFrontController extends Controller
             if (! empty($planData)) {
                 if ($userData->visitors < $planData->visitors) {
                     $widgets = Widget::where('created_by', $userData->id)->where('is_deleted', 0)->where('widget_status', 1)->get();
+                    $isProUser = ($userData->plan_id > 1);
+
                     foreach ($widgets as $key => $widget) {
-                        $checkPageRules = $this->checkForPageRules($widget['unique_id'], $currentUrl, $shopUrl);
+                        $checkPageRules = $this->checkForPageRules($widget['unique_id'], $currentUrl, $shopUrl, $isProUser);
                         $widgetSetting = WidgetSetting::where('widget_id', $widget['unique_id'])->first();
 
                         if ($checkPageRules && isset($widgetSetting)) {
                             $widgetData = $this->set_defaults($widgetSetting);
+
+                            // For Free Plan users, bypass Pro targeting rules
+                            if (! $isProUser) {
+                                $widgetData['page_rule_setting']['has_page_rule'] = 0;
+                                $widgetData['date_time_setting']['has_date_rule'] = 0;
+                                $widgetData['day_hour_setting']['has_day_hour_rule'] = 0;
+                                $widgetData['country_rule_setting']['has_country_rule'] = 0;
+                            }
 
                             $widgetData['id'] = $widget['unique_id'];
                             $widgetData['updated_at'] = strtotime($widget['updated_at']);
@@ -112,8 +122,12 @@ class ShopifyFrontController extends Controller
         return $widgetDataSetting;
     }
 
-    public function checkForPageRules($widgetId, $currentUrl, $shopUrl)
+    public function checkForPageRules($widgetId, $currentUrl, $shopUrl, $isProUser = true)
     {
+        if (! $isProUser) {
+            return true;
+        }
+
         $widgetSettings = WidgetSetting::where('widget_id', $widgetId)->first();
         if (! empty($widgetSettings)) {
             $pageRuleSettings = json_decode($widgetSettings->page_rule_setting, true);

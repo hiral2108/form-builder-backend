@@ -136,6 +136,7 @@ class AuthController extends Controller
             'plan_id' => $userData->plan_id,
             'plan_type' => $userData->plan_type,
             'created_at' => $userData->created_at,
+            'host' => $userData->host,
         ];
 
         return response()->json($response);

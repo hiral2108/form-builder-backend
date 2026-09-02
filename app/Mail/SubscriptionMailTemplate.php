@@ -23,9 +23,9 @@ class SubscriptionMailTemplate extends Mailable
      * Create a new message instance.
      */
     public function __construct(
-        protected array $subscriptionMailTemplate,
-        protected string $email,
-        protected string $unique_id
+        protected $subscriptionMailTemplate,
+        protected string $email = '',
+        protected string $unique_id = ''
     ) {
         $this->newSubject = str_replace('[APP NAME]', config('services.shopify.name') ?? '', $this->subscriptionMailTemplate['subscription_title'] ?? '');
         $this->newContent = str_replace('[APP NAME]', config('services.shopify.name') ?? '', $this->subscriptionMailTemplate['subscription_text'] ?? '');

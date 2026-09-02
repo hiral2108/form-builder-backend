@@ -23,10 +23,10 @@ class UpgradedPlanMailTemplate extends Mailable
      * Create a new message instance.
      */
     public function __construct(
-        protected array $upgradedMailTemplate,
-        protected ?array $oldPlanDetails,
-        protected string $email,
-        protected string $unique_id
+        protected $upgradedMailTemplate,
+        protected $oldPlanDetails = null,
+        protected string $email = '',
+        protected string $unique_id = ''
     ) {
         $arr1 = ['[new_plan]', '[APP NAME]'];
         $arr2 = [$this->upgradedMailTemplate['name'] ?? '', config('services.shopify.name') ?? ''];

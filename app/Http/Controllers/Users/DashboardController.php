@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AdminUser;
 use App\Models\Widget;
 use App\Models\WidgetView;
+use App\Models\Plan;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,6 +42,8 @@ class DashboardController extends Controller
         if (! $userData) {
             return response()->json(['error' => 'User not found or token is invalid'], 401);
         }
+
+        $planData = Plan::where('id',$userData->plan_id)->first();
 
         $dateList = [];
         $clickData = [];
@@ -346,6 +349,7 @@ class DashboardController extends Controller
             $response['totalClicks'] = $Tclicks;
             $response['clickRate'] = $clickRate;
             $response['total_forms'] = $totalForms;
+            $response['planData'] = $planData;
         }
 
         return response()->json($response);

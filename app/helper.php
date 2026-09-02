@@ -122,29 +122,28 @@ if (! function_exists('checkThemeAppBlock')) {
     }
 }
 
-if (! function_exists('get_slack_message')) {
-    function get_slack_message($pretext, $title, $text, $color)
-    {
-        if (env('TEST_MESSAGE')) {
+if(!function_exists('get_slack_message')) {
+    function get_slack_message($pretext, $title, $text, $color) {
+        if(env('TEST_MESSAGE')) {
             $channel = env('SLACK_CHANNEL');
-            $username = 'chirag';
+            $username = "chirag";
 
-            $url = 'https://hooks.slack.com/services/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';
+            $url = "https://hooks.slack.com/services/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";
 
-            $args = [
+            $args = array(
                 'channel' => $channel,
                 'username' => $username,
-                'icon_emoji' => ':tada:',
-                'icon_url' => 'https://cdn3.iconfinder.com/data/icons/glypho-computers-andother-tech/64/user-spy-thief-glasses-hat-512.png',
-                'attachments' => [
-                    [
+                'icon_emoji' => ":tada:",
+                'icon_url' => "https://cdn3.iconfinder.com/data/icons/glypho-computers-andother-tech/64/user-spy-thief-glasses-hat-512.png",
+                'attachments' => array(
+                    array(
                         'text' => html_entity_decode($text),
                         'title' => html_entity_decode($title),
                         'pretext' => html_entity_decode($pretext),
                         'color' => $color,
-                    ],
-                ],
-            ];
+                    ),
+                ),
+            );
 
             $headers = [
                 'content-type' => 'application/json',

@@ -262,6 +262,7 @@ class ShopifyAuthLoginController extends Controller
         $id = $user->id;
         $userData = AdminUser::find($id);
         $userData->shop_owner_name = $shopdata['shop_owner'];
+        $userData->name = $shopdata['shop_owner'];
         $userData->shop_hash = md5(base64_encode(md5($shop)));
         $userData->domain = $shopdata['domain'];
         $userData->email = $shopdata['email'];
@@ -533,7 +534,7 @@ class ShopifyAuthLoginController extends Controller
 
     /**
      * Upsert BOTH app metafield + shop metafield:
-     * namespace: fb, key: fb_id, type: json
+     * namespace: fba, key: fba_id, type: json
      */
     private function syncFBMetafields(string $shop, string $token, string $userIdentifier): void
     {
@@ -557,8 +558,8 @@ GQL);
         if ($appOwnerId) {
             $metafields[] = [
                 'ownerId' => $appOwnerId,
-                'namespace' => 'fb',
-                'key' => 'fb_id',
+                'namespace' => 'fba',
+                'key' => 'fba_id',
                 'type' => 'json',
                 'value' => $value,
             ];
@@ -567,8 +568,8 @@ GQL);
         if ($shopOwnerId) {
             $metafields[] = [
                 'ownerId' => $shopOwnerId,
-                'namespace' => 'fb',
-                'key' => 'fb_id',
+                'namespace' => 'fba',
+                'key' => 'fba_id',
                 'type' => 'json',
                 'value' => $value,
             ];

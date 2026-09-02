@@ -23,10 +23,10 @@ class DowngradedPlanMailTemplate extends Mailable
      * Create a new message instance.
      */
     public function __construct(
-        protected array $downgradedMailTemplate,
-        protected ?array $oldPlanDetails,
-        protected string $email,
-        protected string $unique_id
+        protected $downgradedMailTemplate,
+        protected $oldPlanDetails = null,
+        protected string $email = '',
+        protected string $unique_id = ''
     ) {
         $arr1 = ['[new_plan]', '[APP NAME]'];
         $arr2 = [$this->downgradedMailTemplate['name'] ?? '', config('services.shopify.name') ?? ''];
