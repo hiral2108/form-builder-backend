@@ -104,28 +104,7 @@ class AuthController extends Controller
 
     public function get_user_data(Request $request)
     {
-        $response = [];
-        $bearer = $request->header('Authorization', '');
-
-        if (! $bearer) {
-            return response()->json(['error' => 'Unauthorized'], 401);
-        }
-
-        $token = preg_replace('/^Bearer\s+/i', '', $bearer);
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'error' => 'User not found or token is invalid',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $response = [
             'id' => $userData->id,

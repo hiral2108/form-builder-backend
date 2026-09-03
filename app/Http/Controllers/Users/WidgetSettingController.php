@@ -4,13 +4,11 @@ namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
 use App\Mail\FirstWidgetMailTemplate;
-use App\Models\AdminUser;
 use App\Models\CtaImage;
 use App\Models\EmailTemplate;
 use App\Models\Widget;
 use App\Models\WidgetSetting;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -26,22 +24,7 @@ class WidgetSettingController extends Controller
             ], 400);
         }
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widget = Widget::where('unique_id', $request->widget_id)
             ->where('user_id', $userData->id)
@@ -174,22 +157,7 @@ class WidgetSettingController extends Controller
             'message' => 'Invalid request, please try again later',
         ];
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widget = Widget::where('unique_id', $request->widget_id)
             ->where('user_id', $userData->id)
@@ -238,22 +206,7 @@ class WidgetSettingController extends Controller
             'image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:1024',
         ]);
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $year = date('Y');
         $month = date('m');
@@ -289,22 +242,7 @@ class WidgetSettingController extends Controller
 
     public function remove_image(Request $request)
     {
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $existingImage = CtaImage::where('img_name', $request->image_name)->where('shop_id', $userData->id)->first();
         if (! $existingImage) {

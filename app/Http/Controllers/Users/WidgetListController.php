@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
-use App\Models\AdminUser;
 use App\Models\Widget;
 use App\Models\WidgetSetting;
 use Carbon\Carbon;
@@ -20,22 +19,7 @@ class WidgetListController extends Controller
             'message' => 'Invalid request, please try again later',
         ];
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widgetTitle = $request->title;
         if (! $widgetTitle) {
@@ -70,22 +54,7 @@ class WidgetListController extends Controller
             'message' => 'Invalid request, please try again later',
         ];
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $time = $request->filter ?? $request->time;
         if (! empty($time) && isset($time)) {
@@ -483,22 +452,7 @@ class WidgetListController extends Controller
             ], 422);
         }
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widget = Widget::where('unique_id', $request->widget_id)->where('user_id', $userData->id)->where('is_deleted', 0)->first();
 
@@ -548,22 +502,7 @@ class WidgetListController extends Controller
             ], 422);
         }
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widgetData = Widget::where('unique_id', $request->widget_id)->where('user_id', $userData->id)->where('is_deleted', 0)->first();
 
@@ -597,22 +536,7 @@ class WidgetListController extends Controller
             ], 422);
         }
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widgetData = Widget::where('unique_id', $request->widget_id)->where('user_id', $userData->id)->where('is_deleted', 0)->first();
         if (! $widgetData) {
@@ -644,22 +568,7 @@ class WidgetListController extends Controller
             ], 422);
         }
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $widgetData = Widget::where('unique_id', $request->widget_id)->where('user_id', $userData->id)->where('is_deleted', 0)->first();
         if (! $widgetData) {

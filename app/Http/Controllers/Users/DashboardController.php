@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
-use App\Models\AdminUser;
 use App\Models\Widget;
 use App\Models\WidgetView;
 use App\Models\Plan;
@@ -24,24 +23,7 @@ class DashboardController extends Controller
             'message' => 'Invalid request, please try again later',
         ];
 
-        $bearer = $request->header('Authorization', '');
-        if (! $bearer) {
-            return response()->json(['error' => 'Authorization header missing'], 401);
-        }
-
-        $token = preg_replace('/^Bearer\s+/i', '', $bearer);
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json(['error' => 'User not found or token is invalid'], 401);
-        }
+        $userData = $this->authUser($request);
 
         $planData = Plan::where('id',$userData->plan_id)->first();
 

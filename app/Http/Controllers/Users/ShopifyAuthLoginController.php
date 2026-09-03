@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
 use App\Libraries\Shopifyapi;
+use App\Libraries\ShopifyApiException;
 use App\Mail\MailTemplate;
 use App\Models\AdminUser;
 use App\Models\EmailTemplate;
@@ -241,8 +242,11 @@ class ShopifyAuthLoginController extends Controller
     public function checkWebhook($shop, $host): void
     {
         if (! $shop) {
-            echo 'Set cookies setting  "Always Allow " In safari browser. For  <a target="_blank" href="http://www.macworld.co.uk/how-to/mac/how-enable-cookies-mac-3462635/">enable cookies</a> in your browser and try again.';
-            exit;
+            // Was echo+exit — killed the whole HTTP response with raw HTML
+            // instead of letting the caller's normal JSON response continue.
+            Log::warning('checkWebhook called without a shop — likely a third-party-cookie issue in the merchant\'s browser');
+
+            return;
         }
 
         $adminUserData = AdminUser::where('shop_url', $shop)->first();
@@ -320,7 +324,10 @@ class ShopifyAuthLoginController extends Controller
                 $shopifyapi->call('POST', '/admin/api/'.config('services.shopify.version').'/webhooks.json', $webhookUninstall, $token);
             }
         } catch (ShopifyApiException $e) {
-
+            Log::warning('Failed to register uninstall webhook', [
+                'shop' => $shop,
+                'response' => $e->getResponse(),
+            ]);
         }
 
         $webhookShopUpdateURL = route('shopify.webhook.shop-update');

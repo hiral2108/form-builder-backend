@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
 use App\Libraries\Shopifyapi;
+use App\Libraries\ShopifyApiException;
 use App\Libraries\ShopifyRest;
 use App\Mail\DowngradedPlanMailTemplate;
 use App\Mail\SubscriptionMailTemplate;
@@ -11,9 +12,8 @@ use App\Mail\UpgradedPlanMailTemplate;
 use App\Models\AdminUser;
 use App\Models\Plan;
 use App\Models\RecurringPlanCharge;
-use App\Models\UserToken;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -48,15 +48,7 @@ class ShopifyPlanController extends Controller
             'message' => 'Invalid request, please try again later',
         ];
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
+        $userData = $this->authUser($request);
 
         $plan_id = $request->post('plan_id');
         $plan_typed = $request->post('plan_type');
@@ -87,10 +79,14 @@ class ShopifyPlanController extends Controller
                     $planDetail->is_deleted = 1;
                     $planDetail->update();
                 } catch (ShopifyApiException $e) {
-                    echo '<pre>';
-                    print_r($e->getResponse());
-                    echo '</pre>';
-                    exit;
+                    // Best-effort cleanup of the old recurring charge — Shopify often
+                    // returns an error if it was already cancelled/expired on their
+                    // side, which shouldn't block the merchant from downgrading.
+                    Log::warning('Failed to cancel previous Shopify recurring charge during downgrade', [
+                        'shop' => $shop,
+                        'charge_id' => $userData->charge_id,
+                        'response' => $e->getResponse(),
+                    ]);
                 }
             }
 
@@ -117,7 +113,7 @@ class ShopifyPlanController extends Controller
 
                     if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail', env('TEST_MAIL'))) {
                         try {
-                            Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                            Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($plan_details, $plan_name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
                             \Illuminate\Support\Facades\Log::error('Mail sending error in change_plan downgrade: '.$e->getMessage());
                         }
@@ -135,7 +131,7 @@ class ShopifyPlanController extends Controller
 
                     if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail', env('TEST_MAIL'))) {
                         try {
-                            Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                            Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($plan_details, $plan_name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
                             \Illuminate\Support\Facades\Log::error('Mail sending error in change_plan upgrade: '.$e->getMessage());
                         }
@@ -154,7 +150,7 @@ class ShopifyPlanController extends Controller
 
                 if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail', env('TEST_MAIL'))) {
                     try {
-                        Mail::to($userData->email)->send(new SubscriptionMailTemplate($plan_details, $userData->email, $userData->identifier));
+                        Mail::to($userData->email)->send(new SubscriptionMailTemplate($plan_details, $plan_name, null, $userData->email, $userData->identifier));
                     } catch (\Throwable $e) {
                         \Illuminate\Support\Facades\Log::error('Mail sending error in change_plan subscription: '.$e->getMessage());
                     }
@@ -268,9 +264,16 @@ class ShopifyPlanController extends Controller
                     $response['confirmationUrl'] = $result['confirmation_url'];
 
                 } catch (ShopifyApiException $e) {
-                    print_r($e);
-                    print_r($e->getResponse());
-                    exit;
+                    Log::error('Failed to create Shopify recurring charge', [
+                        'shop' => $shop,
+                        'plan_id' => $plan_id,
+                        'response' => $e->getResponse(),
+                    ]);
+
+                    return response()->json([
+                        'status' => 0,
+                        'message' => 'Unable to start checkout with Shopify. Please try again.',
+                    ], 422);
                 }
             }
         }
@@ -299,6 +302,14 @@ class ShopifyPlanController extends Controller
         if (!$userData) {
             $response['message'] = 'User not found for this plan request';
             return response()->json($response);
+        }
+
+        // The plan_secret_key alone isn't enough to trust this request — it's
+        // embedded in Shopify's billing redirect URL and could leak via
+        // referrer headers or logs. Require it to also match the account of
+        // whoever is actually authenticated on this request.
+        if ($this->authUser($request)->id !== $userData->id) {
+            return response()->json(['status' => 0, 'message' => 'Unauthorized'], 401);
         }
 
         $shop = $userData->shop_url;
@@ -368,7 +379,7 @@ class ShopifyPlanController extends Controller
 
                         if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                             try {
-                                Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                                Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Mail sending error in annual upgrade: '.$e->getMessage());
                             }
@@ -386,7 +397,7 @@ class ShopifyPlanController extends Controller
 
                         if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                             try {
-                                Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                                Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Mail sending error in annual switch: '.$e->getMessage());
                             }
@@ -404,7 +415,7 @@ class ShopifyPlanController extends Controller
 
                         if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                             try {
-                                Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                                Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Mail sending error in annual downgrade: '.$e->getMessage());
                             }
@@ -422,7 +433,7 @@ class ShopifyPlanController extends Controller
 
                     if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                         try {
-                            Mail::to($userData->email)->send(new SubscriptionMailTemplate($new_plan_details, $userData->email, $userData->identifier));
+                            Mail::to($userData->email)->send(new SubscriptionMailTemplate($new_plan_details, $new_plan_details->name, null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
                             \Illuminate\Support\Facades\Log::error('Mail sending error in annual new subscription: '.$e->getMessage());
                         }
@@ -509,6 +520,14 @@ class ShopifyPlanController extends Controller
             return response()->json($response);
         }
 
+        // The plan_secret_key alone isn't enough to trust this request — it's
+        // embedded in Shopify's billing redirect URL and could leak via
+        // referrer headers or logs. Require it to also match the account of
+        // whoever is actually authenticated on this request.
+        if ($this->authUser($request)->id !== $userData->id) {
+            return response()->json(['status' => 0, 'message' => 'Unauthorized'], 401);
+        }
+
         $shop = $userData->shop_url;
         $token = $userData->token;
 
@@ -576,13 +595,13 @@ class ShopifyPlanController extends Controller
 
                         if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                             try {
-                                Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                                Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Mail sending error in month upgrade: '.$e->getMessage());
                             }
                         }
                     } elseif ($current_plan == $plan_id) {
-                        $upgrageMessage = ':sob: Shopify: '.config('services.shopify.name').', Plan is downgraded to '.$new_plan_details->name.' (Monthly)';
+                        $downgradeMessage = ':sob: Shopify: '.config('services.shopify.name').', Plan is downgraded to '.$new_plan_details->name.' (Monthly)';
                         $title = $names.' has downgraded his plan to '.$new_plan_details->name;
                         $text = "\nNew Plan: ".$new_plan_details->name.' ($'.$new_plan_details->month_price.")\n";
                         $text .= 'Old Plan: '.($old_plan_details['name'] ?? '').' ($'.($old_plan_details['year_price'] ?? '').")\n";
@@ -594,7 +613,7 @@ class ShopifyPlanController extends Controller
 
                         if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                             try {
-                                Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                                Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Mail sending error in month switch: '.$e->getMessage());
                             }
@@ -612,7 +631,7 @@ class ShopifyPlanController extends Controller
 
                         if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                             try {
-                                Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $old_plan_details, $userData->email, $userData->identifier));
+                                Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Mail sending error in month downgrade: '.$e->getMessage());
                             }
@@ -630,7 +649,7 @@ class ShopifyPlanController extends Controller
 
                     if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
                         try {
-                            Mail::to($userData->email)->send(new SubscriptionMailTemplate($new_plan_details, $userData->email, $userData->identifier));
+                            Mail::to($userData->email)->send(new SubscriptionMailTemplate($new_plan_details, $new_plan_details->name, null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
                             \Illuminate\Support\Facades\Log::error('Mail sending error in month new subscription: '.$e->getMessage());
                         }

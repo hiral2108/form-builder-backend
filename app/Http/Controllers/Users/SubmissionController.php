@@ -3,11 +3,9 @@
 namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
-use App\Models\AdminUser;
 use App\Models\Submission;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class SubmissionController extends Controller
 {
@@ -16,22 +14,7 @@ class SubmissionController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $limit = $request->input('limit', config('global.pagination_limit', 10));
 
@@ -103,35 +86,27 @@ class SubmissionController extends Controller
             'message' => 'Invalid Request, Please try again',
         ];
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
+        $userData = $this->authUser($request);
+
+        $ids = is_array($request->id) ? $request->id : [$request->id];
+        $ids = array_values(array_filter($ids, fn ($id) => ! empty($id)));
+
+        if (empty($ids)) {
+            return response()->json($response);
         }
 
-        $userData = AdminUser::select(DB::raw('admin_users.*'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
+        // Only delete submissions belonging to a widget owned by the authenticated
+        // user — previously this deleted by ID alone with no ownership check.
+        Submission::whereIn('submissions.id', $ids)
+            ->whereIn('submissions.widget_id', function ($query) use ($userData) {
+                $query->select('id')->from('widgets')->where('user_id', $userData->id);
+            })
+            ->delete();
 
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
-
-        if (! empty($request->id) && ! is_array($request->id) && ! empty($userData)) {
-            $leadsData = Submission::find($request->id)->delete();
-            $response['status'] = 1;
-            $response['message'] = 'Submission removed successfully';
-        }
-        if (! empty($request->id) && is_array($request->id) && ! empty($userData)) {
-            foreach ($request->id as $key => $val) {
-                $leadsData = Submission::find($val)->delete();
-            }
-            $response['status'] = 1;
-            $response['message'] = 'Selected Submissions removed successfully';
-        }
+        $response['status'] = 1;
+        $response['message'] = count($ids) > 1
+            ? 'Selected Submissions removed successfully'
+            : 'Submission removed successfully';
 
         return response()->json($response);
     }
@@ -144,56 +119,27 @@ class SubmissionController extends Controller
             'message' => 'Invalid Request, Please try again',
         ];
 
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
+        $userData = $this->authUser($request);
 
-        $userData = AdminUser::select(DB::raw('admin_users.*'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
+        // Scoped via a real WHERE on the owning widget's user_id — the previous
+        // version put the filter inside a LEFT JOIN's ON clause, which meant the
+        // DELETE had no row-restricting condition at all and wiped every shop's
+        // submissions. It also filtered on widgets.created_by (a nullable label
+        // column), not widgets.user_id (the actual foreign key used everywhere
+        // else in this controller).
+        Submission::whereIn('widget_id', function ($query) use ($userData) {
+            $query->select('id')->from('widgets')->where('user_id', $userData->id);
+        })->delete();
 
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
-
-        $this->userId = $userData->id;
-        if (! empty($userData)) {
-            $leadsData = Submission::select(DB::raw('submissions.*'))
-                ->leftJoin('widgets', function ($join) {
-                    $join->on('submissions.widget_id', '=', 'widgets.id')
-                        ->where('widgets.created_by', '=', $this->userId);
-                })->delete();
-
-            $response['status'] = 1;
-            $response['message'] = 'All Submissions removed successfully';
-        }
+        $response['status'] = 1;
+        $response['message'] = 'All Submissions removed successfully';
 
         return response()->json($response);
     }
 
     public function export_lead(Request $request)
     {
-        $token = preg_replace('/^Bearer\s+/i', '', $request->header('Authorization'));
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'Invalid User',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         // Start building the query
         $query = Submission::select('submissions.*', 'widgets.title as widget_title', 'widgets.unique_id as widget_unique_id')

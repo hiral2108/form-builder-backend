@@ -26,7 +26,7 @@ return array(
         |
         */
 
-        'default' => 'mysql',
+        'default' => env('DB_CONNECTION', 'mysql'),
 
         /*
         |--------------------------------------------------------------------------
@@ -55,10 +55,11 @@ return array(
 
                 'mysql' => array(
                         'driver'    => 'mysql',
-                        'host'      => 'localhost',
-                        'database'  => 'cmtgfqvznw',
-                        'username'  => 'cmtgfqvznw',
-                        'password'  => 'u6RhAhy8yY',
+                        'host'      => env('DB_HOST', 'localhost'),
+                        'port'      => env('DB_PORT', '3306'),
+                        'database'  => env('DB_DATABASE', 'cmtgfqvznw'),
+                        'username'  => env('DB_USERNAME', 'cmtgfqvznw'),
+                        'password'  => env('DB_PASSWORD', 'u6RhAhy8yY'),
                         'charset'   => 'utf8',
                         'collation' => 'utf8_unicode_ci',
                         'prefix'    => '',

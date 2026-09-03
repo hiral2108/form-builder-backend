@@ -24,11 +24,16 @@ class SubscriptionMailTemplate extends Mailable
      */
     public function __construct(
         protected $subscriptionMailTemplate,
+        protected string $newPlanName = '',
+        protected ?string $oldPlanName = null,
         protected string $email = '',
         protected string $unique_id = ''
     ) {
-        $this->newSubject = str_replace('[APP NAME]', config('services.shopify.name') ?? '', $this->subscriptionMailTemplate['subscription_title'] ?? '');
-        $this->newContent = str_replace('[APP NAME]', config('services.shopify.name') ?? '', $this->subscriptionMailTemplate['subscription_text'] ?? '');
+        $arr1 = ['[new_plan]', '[current_plan]', '[APP NAME]'];
+        $arr2 = [$this->newPlanName, $this->oldPlanName ?? '', config('services.shopify.name') ?? ''];
+
+        $this->newSubject = str_replace($arr1, $arr2, $this->subscriptionMailTemplate['subscription_title'] ?? '');
+        $this->newContent = str_replace($arr1, $arr2, $this->subscriptionMailTemplate['subscription_text'] ?? '');
 
         // Save mail log
         ClientMailLog::create([
