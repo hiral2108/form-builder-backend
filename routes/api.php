@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Log;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/refresh-token', [AuthController::class, 'refresh']);
 
 Route::middleware(['auth.token'])->group(function () {
     Route::get('/get_user_data', [AuthController::class, 'get_user_data']);
