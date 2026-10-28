@@ -7,6 +7,7 @@ use App\Libraries\Shopifyapi;
 use App\Libraries\ShopifyApiException;
 use App\Mail\MailTemplate;
 use App\Models\AdminUser;
+use App\Models\CtaImage;
 use App\Models\EmailTemplate;
 use App\Models\Plan;
 use App\Models\RecurringPlanCharge;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use App\Models\Widget;
+use App\Models\WidgetSetting;
 
 class ShopifyAuthLoginController extends Controller
 {
@@ -484,23 +487,23 @@ class ShopifyAuthLoginController extends Controller
         $updateData->current_charges = 0;
         $updateData->update();
 
-        //        $widgetData = Widget::where('user_id',$shopId)->where('is_deleted', 0)->get();
-        //
-        //        foreach($widgetData as $widget) {
-        //            $widget->is_deleted = 1;
-        //            $widget->deleted_by = $shopId;
-        //            $widget->deleted_at = now();
-        //            $widget->update();
-        //
-        //            $currentWidgetSettings = WidgetSetting::where('widget_id',$widget->unique_id)->first();
-        //            $ctaIconSetting = json_decode($currentWidgetSettings->cta_icon_setting, true);
-        //            $existingImage = ChannelImage::where('img_name', $ctaIconSetting['custom_cta_file'])->where('shop_id', $storeData->id)->first();
-        //            if($existingImage) {
-        //                $existingImage->is_used = 0;
-        //                $existingImage->updated_at = now();
-        //                $existingImage->update();
-        //            }
-        //        }
+        $widgetData = Widget::where('user_id',$shopId)->where('is_deleted', 0)->get();
+
+        foreach($widgetData as $widget) {
+            $widget->is_deleted = 1;
+            $widget->deleted_by = $shopId;
+            $widget->deleted_at = now();
+            $widget->update();
+
+            $currentWidgetSettings = WidgetSetting::where('widget_id',$widget->unique_id)->first();
+            $displayRuleSetting = json_decode($currentWidgetSettings->display_rule_setting, true);
+            $existingImage = CtaImage::where('img_name', $displayRuleSetting['custom_cta_file'])->where('shop_id', $storeData->id)->first();
+            if($existingImage) {
+                $existingImage->is_used = 0;
+                $existingImage->updated_at = now();
+                $existingImage->update();
+            }
+        }
 
         return response()->json(['status' => 1]);
 

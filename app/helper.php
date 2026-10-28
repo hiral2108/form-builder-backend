@@ -128,7 +128,7 @@ if(!function_exists('get_slack_message')) {
             $channel = env('SLACK_CHANNEL');
             $username = "chirag";
 
-            $url = "https://hooks.slack.com/services/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";
+            $url = "https://hooks.slack.com/services/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";
 
             $args = array(
                 'channel' => $channel,
@@ -328,6 +328,15 @@ if(!function_exists('get_default_submission_setting')) {
                 'cc' => "",
                 'selectedFields' => [],
             ],
+        ];
+    }
+}
+
+if(!function_exists('get_default_device_setting')) {
+    function get_default_device_setting() {
+        return [
+            'has_desktop' => 1,
+            'has_mobile' => 1
         ];
     }
 }

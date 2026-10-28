@@ -86,6 +86,7 @@ class WidgetSettingController extends Controller
         $displayRuleSettings = json_encode($displayRuleSettings);
 
         $submissionSettings = json_encode($request->input('submission_setting', []));
+        $deviceSetting = json_encode($request->input('devices', []));
         $timeDelaySettings = json_encode($request->input('time_delay_setting', []));
         $scrollBasedSettings = json_encode($request->input('scroll_based_setting', []));
 
@@ -94,6 +95,7 @@ class WidgetSettingController extends Controller
             'form_style_setting' => $formStyleSettings,
             'display_rule_setting' => $displayRuleSettings,
             'submission_setting' => $submissionSettings,
+            'devices' => $deviceSetting,
             'time_delay_setting' => $timeDelaySettings,
             'scroll_based_setting' => $scrollBasedSettings,
         ];
@@ -186,6 +188,7 @@ class WidgetSettingController extends Controller
                 'form_style_setting' => json_decode($widgetSetting->form_style_setting, true),
                 'display_rule_setting' => json_decode($widgetSetting->display_rule_setting, true),
                 'submission_setting' => json_decode($widgetSetting->submission_setting, true),
+                'device_setting' => json_decode($widgetSetting->devices, true),
                 'time_delay_setting' => json_decode($widgetSetting->time_delay_setting, true),
                 'scroll_based_setting' => json_decode($widgetSetting->scroll_based_setting, true),
                 'page_rule_setting' => json_decode($widgetSetting->page_rule_setting, true),

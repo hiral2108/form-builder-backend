@@ -89,6 +89,7 @@ class ShopifyFrontController extends Controller
         $defaultFormStyleSetting = get_default_form_style_setting();
         $defaultDisplayRuleSetting = get_default_display_rule_setting();
         $defaultSubmissionSetting = get_default_submission_setting();
+        $defaultDeviceSetting = get_default_device_setting();
         $defaultTimeDelaySetting = get_default_time_delay_setting();
         $defaultScrollBasedSetting = get_default_scroll_based_setting();
         $defaultPageRuleSetting = get_default_page_rule_setting();
@@ -100,6 +101,7 @@ class ShopifyFrontController extends Controller
         $formStyleSetting = json_decode($widget->form_style_setting, true);
         $displayRuleSetting = json_decode($widget->display_rule_setting, true);
         $submissionSetting = json_decode($widget->submission_setting, true);
+        $deviceSetting = json_decode($widget->devices, true);
         $timeDelaySetting = json_decode($widget->time_delay_setting, true);
         $scrollBasedSetting = json_decode($widget->scroll_based_setting, true);
         $pageRuleSetting = json_decode($widget->page_rule_setting, true);
@@ -112,6 +114,7 @@ class ShopifyFrontController extends Controller
         $widgetDataSetting['form_style_setting'] = shortcode_atts($defaultFormStyleSetting, $formStyleSetting);
         $widgetDataSetting['display_rule_setting'] = shortcode_atts($defaultDisplayRuleSetting, $displayRuleSetting);
         $widgetDataSetting['submission_setting'] = shortcode_atts($defaultSubmissionSetting, $submissionSetting);
+        $widgetDataSetting['device_setting'] = shortcode_atts($defaultDeviceSetting, $deviceSetting);
         $widgetDataSetting['time_delay_setting'] = shortcode_atts($defaultTimeDelaySetting, $timeDelaySetting);
         $widgetDataSetting['scroll_based_setting'] = shortcode_atts($defaultScrollBasedSetting, $scrollBasedSetting);
         $widgetDataSetting['page_rule_setting'] = shortcode_atts($defaultPageRuleSetting, $pageRuleSetting);
