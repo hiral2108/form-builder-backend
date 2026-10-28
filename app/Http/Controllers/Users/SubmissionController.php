@@ -249,11 +249,18 @@ class SubmissionController extends Controller
             'Content-Disposition' => "attachment; filename={$filename}",
         ];
 
-        return response()->stream(function () use ($header_row, $data_rows) {
+        // Submitted values are untrusted: stop spreadsheet apps from evaluating them as formulas.
+        $neutralize = static function ($cell) {
+            $cell = is_scalar($cell) || $cell === null ? (string) $cell : json_encode($cell);
+
+            return in_array(substr($cell, 0, 1), ['=', '+', '-', '@', "\t", "\r"], true) ? "'".$cell : $cell;
+        };
+
+        return response()->stream(function () use ($header_row, $data_rows, $neutralize) {
             $fh = fopen('php://output', 'w');
-            fputcsv($fh, $header_row);
+            fputcsv($fh, array_map($neutralize, $header_row));
             foreach ($data_rows as $value) {
-                fputcsv($fh, $value);
+                fputcsv($fh, array_map($neutralize, $value));
             }
             fclose($fh);
         }, 200, $headers);

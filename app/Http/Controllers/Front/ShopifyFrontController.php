@@ -14,6 +14,8 @@ use App\Models\WidgetView;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 class ShopifyFrontController extends Controller
@@ -31,6 +33,11 @@ class ShopifyFrontController extends Controller
         $allWidgets = [];
         if (! empty($shopName)) {
             $userData = AdminUser::where('identifier', $shopName)->orWhere('shop_url', $shopName)->first();
+            if (! $userData) {
+                $response['widget_data'] = [];
+
+                return response()->json($response, 200);
+            }
 
             $planData = Plan::where('id', $userData->plan_id)->first();
 
@@ -65,7 +72,7 @@ class ShopifyFrontController extends Controller
 
             $currentPlanDetail = Plan::where('id', $userData->plan_id)->first();
             if ($userData['is_sent_visitor_limit_mail'] == 0) {
-                if (! empty($currentPlanDetail) && env('TEST_MAIL') == true) {
+                if (! empty($currentPlanDetail) && config('services.slack.test_mail') == true) {
                     if ($userData->visitors == $planData->visitors) {
                         Mail::to($userData->email)->send(new LimitMailTemplate($userData, $currentPlanDetail, $userData->email, $userData->identifier));
                         $userData->is_sent_visitor_limit_mail = 1;
@@ -114,6 +121,12 @@ class ShopifyFrontController extends Controller
         $widgetDataSetting['form_style_setting'] = shortcode_atts($defaultFormStyleSetting, $formStyleSetting);
         $widgetDataSetting['display_rule_setting'] = shortcode_atts($defaultDisplayRuleSetting, $displayRuleSetting);
         $widgetDataSetting['submission_setting'] = shortcode_atts($defaultSubmissionSetting, $submissionSetting);
+        $widgetDataSetting['submission_setting']['messageToShow'] = sanitize_rich_html($widgetDataSetting['submission_setting']['messageToShow'] ?? '');
+        $widgetDataSetting['submission_setting']['customUrl'] = sanitize_redirect_url($widgetDataSetting['submission_setting']['customUrl'] ?? '');
+        // Notification recipients are merchant-private; the server reads them from its own copy on submit.
+        foreach (['sendToEmail', 'cc', 'bcc', 'replyTo'] as $privateEmailKey) {
+            unset($widgetDataSetting['submission_setting']['emailSettings'][$privateEmailKey]);
+        }
         $widgetDataSetting['device_setting'] = shortcode_atts($defaultDeviceSetting, $deviceSetting);
         $widgetDataSetting['time_delay_setting'] = shortcode_atts($defaultTimeDelaySetting, $timeDelaySetting);
         $widgetDataSetting['scroll_based_setting'] = shortcode_atts($defaultScrollBasedSetting, $scrollBasedSetting);
@@ -262,10 +275,20 @@ class ShopifyFrontController extends Controller
             'widget_id' => 'required|string',
             'form_fields' => 'present|array',
             'identifier' => 'nullable|string',
-            'page_url' => 'nullable|string',
-            'device' => 'nullable|string',
+            'page_url' => 'nullable|string|max:2048',
+            'device' => 'nullable|string|max:20',
             'email_fields' => 'nullable|array',
         ]);
+
+        if (strlen((string) json_encode([$request->form_fields, $request->input('email_fields', [])])) > 200000) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Submission is too large',
+            ], 413);
+        }
+
+        // The page URL ends up as a link in the merchant's email, so only http(s) URLs are kept.
+        $pageUrl = sanitize_redirect_url($request->page_url) ?: null;
 
         $widget = Widget::where('unique_id', $request->widget_id)->first();
 
@@ -306,7 +329,7 @@ class ShopifyFrontController extends Controller
         if ($saveToDatabase) {
             $submission = Submission::create([
                 'fields' => $request->form_fields,
-                'page_url' => $request->page_url,
+                'page_url' => $pageUrl,
                 'widget_id' => $widget->id,
                 'ip_address' => $request->ip(),
                 'is_from_mobile' => (bool) $isMobile,
@@ -327,7 +350,7 @@ class ShopifyFrontController extends Controller
                     Mail::to($emails)->send(new LeadMailTemplate(
                         $submissionSetting['emailSettings'],
                         $request->input('email_fields', []),
-                        $request->page_url,
+                        $pageUrl,
                         $storeIdentifier
                     ));
                 }
@@ -341,6 +364,10 @@ class ShopifyFrontController extends Controller
         ], 200);
     }
 
+    /**
+     * Counts a unique visitor for a shop. The count is decided server-side (never taken from the
+     * request) and a given IP is counted at most once per window, so the quota can't be inflated.
+     */
     public function update_visitors(Request $request)
     {
         $response = array(
@@ -348,10 +375,13 @@ class ShopifyFrontController extends Controller
             'message' => '',
         );
 
-        $shopData = AdminUser::where('identifier', $request->shop_url)->orWhere('shop_url', $request->shop_url)->first();
+        $shopData = $this->findShop($request);
+        if (empty($shopData)) {
+            return response()->json($response, 404);
+        }
 
         $planData = Plan::where('id', $shopData->plan_id)->first();
-        if ($shopData->visitors > $planData->visitors) {
+        if ($planData && $shopData->visitors > $planData->visitors) {
             $updateVisitor = AdminUser::find($shopData->id);
             $updateVisitor->max_visitors_at = date('Y-m-d H:i:s');
             $updateVisitor->updated_at = date('Y-m-d H:i:s');
@@ -359,10 +389,12 @@ class ShopifyFrontController extends Controller
             $response['status'] = 1;
             $response['message'] = "You have to upgrade your plan";
         } else {
-            $updateVisitor = AdminUser::find($shopData->id);
-            $updateVisitor->visitors = $shopData->visitors + $request->visitor_count;
-            $updateVisitor->updated_at = date('Y-m-d H:i:s');
-            $updateVisitor->update();
+            if (Cache::add('visitor:'.$shopData->id.':'.$request->ip(), 1, now()->addMinutes(30))) {
+                AdminUser::where('id', $shopData->id)->update([
+                    'visitors' => DB::raw('visitors + 1'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
             $response['status'] = 1;
             $response['message'] = "Visitors updated successfully";
         }
@@ -372,82 +404,68 @@ class ShopifyFrontController extends Controller
 
     public function view_widget(Request $request)
     {
-        $response = array(
-            'status' => 0,
-            'message' => ''
-        );
-
-        $shopData = AdminUser::where('identifier', $request->shop_url)->orWhere('shop_url', $request->shop_url)->first();
-        $widgets = Widget::where('unique_id',$request->widget_id)->first();
-        $widgetData = WidgetView::where('widget_id',$widgets->id)->whereDate('created_date', Carbon::today())->first();
-        if(!empty($shopData)) {
-            if(empty($widgetData)) {
-                $newVisitor = new WidgetView;
-                if($request->view == 1) {
-                    $newVisitor->mobile_view = $newVisitor->mobile_view + $request->views;
-                }else{
-                    $newVisitor->desktop_view = $newVisitor->desktop_view + $request->views;
-                }
-                $newVisitor->created_date = date('Y-m-d H:i:s');
-                $newVisitor->widget_id = $widgets->id;
-                $newVisitor->save();
-                $response['status'] = 1;
-                $response['message'] = "Views created successfully";
-            } else {
-                $updateVisitor = WidgetView::find($widgetData->id);
-                if($request->view == 1) {
-                    $updateVisitor->mobile_view = $updateVisitor->mobile_view + $request->views;
-                }else{
-                    $updateVisitor->desktop_view = $updateVisitor->desktop_view + $request->views;
-                }
-                $updateVisitor->created_date = date('Y-m-d H:i:s');
-                $updateVisitor->widget_id = $widgets->id;
-                $updateVisitor->update();
-                $response['status'] = 1;
-                $response['message'] = "Views updated successfully";
-            }
-        }
-        return response()->json($response);
+        return $this->trackWidgetEvent($request, 'view');
     }
 
     public function click_widget(Request $request)
+    {
+        return $this->trackWidgetEvent($request, 'click');
+    }
+
+    private function findShop(Request $request): ?AdminUser
+    {
+        $shopUrl = $request->input('shop_url');
+        if (! is_string($shopUrl) || $shopUrl === '') {
+            return null;
+        }
+
+        return AdminUser::where('identifier', $shopUrl)->orWhere('shop_url', $shopUrl)->first();
+    }
+
+    /**
+     * Records one view or click for a widget, counted once per IP per widget per window.
+     */
+    private function trackWidgetEvent(Request $request, string $event): JsonResponse
     {
         $response = array(
             'status' => 0,
             'message' => '',
         );
-        // $shopData = AdminUser::where('shop_url',$request->shop_url)->first();
-        $shopData = AdminUser::where('identifier', $request->shop_url)->orWhere('shop_url', $request->shop_url)->first();
-        $widgets = Widget::where('unique_id',$request->widget_id)->first();
-        $widgetData = WidgetView::where('widget_id',$widgets->id)->whereDate('created_date', Carbon::today())->first();
 
-        if(!empty($shopData)) {
-            if(empty($widgetData)) {
-                $newVisitor = new WidgetView;
-                if($request->view == 1) {
-                    $newVisitor->mobile_click = $newVisitor->mobile_click + $request->clicks;
-                }else{
-                    $newVisitor->desktop_click = $newVisitor->desktop_click + $request->clicks;
-                }
-                $newVisitor->created_date = date('Y-m-d H:i:s');
-                $newVisitor->widget_id = $widgets->id;
-                $newVisitor->save();
-                $response['status'] = 1;
-                $response['message'] = "Clicks created successfully";
-            }else {
-                $updateVisitor = WidgetView::find($widgetData->id);
-                if($request->view == 1) {
-                    $updateVisitor->mobile_click = $updateVisitor->mobile_click + $request->clicks;
-                }else{
-                    $updateVisitor->desktop_click = $updateVisitor->desktop_click + $request->clicks;
-                }
-                $updateVisitor->created_date = date('Y-m-d H:i:s');
-                $updateVisitor->widget_id = $widgets->id;
-                $updateVisitor->update();
-                $response['status'] = 1;
-                $response['message'] = "Clicks updated successfully";
-            }
+        $shopData = $this->findShop($request);
+        $widget = Widget::where('unique_id', $request->widget_id)->first();
+
+        if (empty($shopData) || empty($widget) || $widget->user_id != $shopData->id) {
+            return response()->json($response);
         }
+
+        $device = $request->view == 1 ? 'mobile' : 'desktop';
+        $column = $device.'_'.$event;
+
+        $cacheKey = 'widget_'.$event.':'.$widget->id.':'.$device.':'.$request->ip();
+        if (! Cache::add($cacheKey, 1, now()->addMinutes(5))) {
+            $response['status'] = 1;
+            $response['message'] = ucfirst($event).'s updated successfully';
+
+            return response()->json($response);
+        }
+
+        $widgetData = WidgetView::where('widget_id', $widget->id)->whereDate('created_date', Carbon::today())->first();
+        if (empty($widgetData)) {
+            $widgetData = new WidgetView;
+            $widgetData->widget_id = $widget->id;
+            $widgetData->created_date = date('Y-m-d H:i:s');
+            $widgetData->{$column} = 1;
+            $widgetData->save();
+        } else {
+            $widgetData->{$column} = $widgetData->{$column} + 1;
+            $widgetData->created_date = date('Y-m-d H:i:s');
+            $widgetData->update();
+        }
+
+        $response['status'] = 1;
+        $response['message'] = ucfirst($event).'s updated successfully';
+
         return response()->json($response);
     }
 

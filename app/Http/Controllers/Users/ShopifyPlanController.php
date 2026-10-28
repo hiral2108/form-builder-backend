@@ -111,7 +111,7 @@ class ShopifyPlanController extends Controller
                     $color = '#e83845';
                     get_slack_message($downgradeMessage, $title, $text, $color);
 
-                    if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail', env('TEST_MAIL'))) {
+                    if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail')) {
                         try {
                             Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($plan_details, $plan_name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
@@ -129,7 +129,7 @@ class ShopifyPlanController extends Controller
                     $color = '#ffce30';
                     get_slack_message($upgrageMessage, $title, $text, $color);
 
-                    if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail', env('TEST_MAIL'))) {
+                    if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail')) {
                         try {
                             Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($plan_details, $plan_name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
@@ -148,7 +148,7 @@ class ShopifyPlanController extends Controller
                 $color = '#ffce30';
                 get_slack_message($upgrageMessage, $title, $text, $color);
 
-                if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail', env('TEST_MAIL'))) {
+                if (isset($userData['id']) && ! empty($userData['email']) && config('services.slack.test_mail')) {
                     try {
                         Mail::to($userData->email)->send(new SubscriptionMailTemplate($plan_details, $plan_name, null, $userData->email, $userData->identifier));
                     } catch (\Throwable $e) {
@@ -178,10 +178,10 @@ class ShopifyPlanController extends Controller
             $shopify_plan_name = ['affiliate', 'partner_test', 'plus_partner_sandbox', 'staff', 'staff_business'];
 
             $shop_id = $userData->id;
-            $test = env('TEST_MODE');
+            $test = config('services.shopify.test_mode');
 
-            if (in_array($shopify_plan, $shopify_plan_name) || $shop == 'hiru123456.myshopify.com') {
-                $test = env('TEST_MODE');
+            if (in_array($shopify_plan, $shopify_plan_name)) {
+                $test = config('services.shopify.test_mode');
             }
 
             $planSecretKey = (string) Str::uuid();
@@ -190,11 +190,11 @@ class ShopifyPlanController extends Controller
 
             $url_shop = '?plan_secret_key='.$planSecretKey;
 
-            $trialDays = env('TRIAL_DAYS');
+            $trialDays = config('services.shopify.trial_days');
 
             if ($plan_type == 'Yearly') {
 
-                $returnUrl = env('FRONTEND_URL').
+                $returnUrl = config('services.shopify.frontend_url').
                     "/plan/annual?plan_secret_key={$planSecretKey}";
 
                 $payload = [
@@ -230,9 +230,9 @@ class ShopifyPlanController extends Controller
                 $data = ['recurring_application_charge' => [
                     'name' => $shopifyPlan->name,
                     'price' => $plan_details->month_price,
-                    'return_url' => env('FRONTEND_URL').'/plan/month?plan_secret_key='.$planSecretKey,
+                    'return_url' => config('services.shopify.frontend_url').'/plan/month?plan_secret_key='.$planSecretKey,
                     'test' => $test,
-                    'trial_days' => env('TRIAL_DAYS'),
+                    'trial_days' => config('services.shopify.trial_days'),
                 ],
                 ];
                 try {
@@ -377,7 +377,7 @@ class ShopifyPlanController extends Controller
                         $color = '#ffce30';
                         get_slack_message($upgrageMessage, $title, $text, $color);
 
-                        if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                        if (config('services.slack.test_mail') && !empty($userData->email)) {
                             try {
                                 Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
@@ -395,7 +395,7 @@ class ShopifyPlanController extends Controller
                         $color = '#ffce30';
                         get_slack_message($upgrageMessage, $title, $text, $color);
 
-                        if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                        if (config('services.slack.test_mail') && !empty($userData->email)) {
                             try {
                                 Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
@@ -413,7 +413,7 @@ class ShopifyPlanController extends Controller
                         $color = '#e83845';
                         get_slack_message($downgradeMessage, $title, $text, $color);
 
-                        if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                        if (config('services.slack.test_mail') && !empty($userData->email)) {
                             try {
                                 Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
@@ -431,7 +431,7 @@ class ShopifyPlanController extends Controller
                     $color = '#ffce30';
                     get_slack_message($upgrageMessage, $title, $text, $color);
 
-                    if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                    if (config('services.slack.test_mail') && !empty($userData->email)) {
                         try {
                             Mail::to($userData->email)->send(new SubscriptionMailTemplate($new_plan_details, $new_plan_details->name, null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {
@@ -593,7 +593,7 @@ class ShopifyPlanController extends Controller
                         $color = '#ffce30';
                         get_slack_message($upgrageMessage, $title, $text, $color);
 
-                        if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                        if (config('services.slack.test_mail') && !empty($userData->email)) {
                             try {
                                 Mail::to($userData->email)->send(new UpgradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
@@ -611,7 +611,7 @@ class ShopifyPlanController extends Controller
                         $color = '#e83845';
                         get_slack_message($downgradeMessage, $title, $text, $color);
 
-                        if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                        if (config('services.slack.test_mail') && !empty($userData->email)) {
                             try {
                                 Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
@@ -629,7 +629,7 @@ class ShopifyPlanController extends Controller
                         $color = '#e83845';
                         get_slack_message($downgradeMessage, $title, $text, $color);
 
-                        if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                        if (config('services.slack.test_mail') && !empty($userData->email)) {
                             try {
                                 Mail::to($userData->email)->send(new DowngradedPlanMailTemplate($new_plan_details, $new_plan_details->name, $old_plan_details->name ?? null, $userData->email, $userData->identifier));
                             } catch (\Throwable $e) {
@@ -647,7 +647,7 @@ class ShopifyPlanController extends Controller
                     $color = '#ffce30';
                     get_slack_message($upgrageMessage, $title, $text, $color);
 
-                    if (config('services.slack.test_mail', env('TEST_MAIL')) && !empty($userData->email)) {
+                    if (config('services.slack.test_mail') && !empty($userData->email)) {
                         try {
                             Mail::to($userData->email)->send(new SubscriptionMailTemplate($new_plan_details, $new_plan_details->name, null, $userData->email, $userData->identifier));
                         } catch (\Throwable $e) {

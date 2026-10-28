@@ -85,7 +85,16 @@ class WidgetSettingController extends Controller
         }
         $displayRuleSettings = json_encode($displayRuleSettings);
 
-        $submissionSettings = json_encode($request->input('submission_setting', []));
+        $submissionSettingInput = $request->input('submission_setting', []);
+        if (is_array($submissionSettingInput)) {
+            if (array_key_exists('messageToShow', $submissionSettingInput)) {
+                $submissionSettingInput['messageToShow'] = sanitize_rich_html($submissionSettingInput['messageToShow']);
+            }
+            if (array_key_exists('customUrl', $submissionSettingInput)) {
+                $submissionSettingInput['customUrl'] = sanitize_redirect_url($submissionSettingInput['customUrl']);
+            }
+        }
+        $submissionSettings = json_encode($submissionSettingInput);
         $deviceSetting = json_encode($request->input('devices', []));
         $timeDelaySettings = json_encode($request->input('time_delay_setting', []));
         $scrollBasedSettings = json_encode($request->input('scroll_based_setting', []));
@@ -127,7 +136,7 @@ class WidgetSettingController extends Controller
                 $userData->update();
 
                 $email_templates = EmailTemplate::where('key', 'WIDGET_MAIL')->first();
-                if (! empty($email_templates) && env('TEST_MAIL') && ! empty($userData->email) && filter_var($userData->email, FILTER_VALIDATE_EMAIL)) {
+                if (! empty($email_templates) && config('services.slack.test_mail') && ! empty($userData->email) && filter_var($userData->email, FILTER_VALIDATE_EMAIL)) {
                     Mail::to($userData->email)->send(new FirstWidgetMailTemplate($email_templates, $userData->email, $userData->identifier));
                 }
             }
@@ -224,10 +233,15 @@ class WidgetSettingController extends Controller
         // Handle image file
         if ($request->hasFile('image')) {
             $file = $request->file('image');
-            $filename = Str::random(8).'-'.$file->getClientOriginalName();
+            // Extension comes from the detected content type, never from the client-supplied name.
+            $extension = $file->guessExtension();
+            if (! in_array($extension, ['jpeg', 'jpg', 'png', 'gif', 'webp'], true)) {
+                return response()->json(['message' => 'Unsupported image type'], 422);
+            }
+            $filename = Str::random(32).'.'.$extension;
             $file->move($folderPath, $filename);
 
-            $filePath = env('APP_IMAGE_URL')."uploads/{$year}/{$month}/{$filename}";
+            $filePath = config('services.shopify.image_url')."uploads/{$year}/{$month}/{$filename}";
 
             $ctaImage = new CtaImage;
             $ctaImage->img_name = $filename;

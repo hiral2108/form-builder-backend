@@ -38,7 +38,7 @@ if (! function_exists('check_theme_embeded_status')) {
         if (isset($setting_value['current']['blocks']) && $setting_value['current']['blocks']) {
             foreach ($setting_value['current']['blocks'] as $blocks) {
 
-                if (strpos($blocks['type'], env('EXTENSION_ID')) !== false) {
+                if (strpos($blocks['type'], config('services.shopify.extension_id')) !== false) {
                     if ($blocks['disabled'] == 1) {
                         $app_embeded_notification = 1;
                     } else {
@@ -124,11 +124,14 @@ if (! function_exists('checkThemeAppBlock')) {
 
 if(!function_exists('get_slack_message')) {
     function get_slack_message($pretext, $title, $text, $color) {
-        if(env('TEST_MESSAGE')) {
-            $channel = env('SLACK_CHANNEL');
+        if(config('services.slack.test_message')) {
+            $channel = config('services.slack.channel');
             $username = "chirag";
 
-            $url = "https://hooks.slack.com/services/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";
+            $url = config('services.slack.webhook_url');
+            if (empty($url)) {
+                return;
+            }
 
             $args = array(
                 'channel' => $channel,
@@ -154,7 +157,6 @@ if(!function_exists('get_slack_message')) {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($args));
             $result = curl_exec($ch);
             curl_close($ch);
@@ -461,3 +463,121 @@ if(!function_exists('get_default_country_rule_setting')) {
     }
 }
 
+
+if (! function_exists('sanitize_rich_html')) {
+    /**
+     * Strip a merchant-supplied HTML fragment down to a safe formatting allowlist
+     * (no scripts, event handlers, iframes, javascript: URLs, etc.).
+     */
+    function sanitize_rich_html($html): string
+    {
+        $html = is_string($html) ? trim($html) : '';
+        if ($html === '') {
+            return '';
+        }
+
+        $allowedTags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'span', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'div', 'sub', 'sup'];
+        $dropWithContent = ['script', 'style', 'iframe', 'object', 'embed', 'svg', 'math', 'template', 'noscript', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base'];
+        $allowedStyles = ['color', 'background-color', 'font-size', 'font-weight', 'font-style', 'text-align', 'text-decoration'];
+
+        $previous = libxml_use_internal_errors(true);
+        $doc = new DOMDocument;
+        $doc->loadHTML('<?xml encoding="utf-8" ?><div id="sanitize-root">'.$html.'</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $clean = function (DOMNode $node) use (&$clean, $allowedTags, $dropWithContent, $allowedStyles): void {
+            foreach (iterator_to_array($node->childNodes) as $child) {
+                if ($child instanceof DOMComment || $child instanceof DOMProcessingInstruction) {
+                    $node->removeChild($child);
+
+                    continue;
+                }
+                if (! $child instanceof DOMElement) {
+                    continue;
+                }
+
+                $tag = strtolower($child->tagName);
+                if (in_array($tag, $dropWithContent, true)) {
+                    $node->removeChild($child);
+
+                    continue;
+                }
+
+                $clean($child);
+
+                if (! in_array($tag, $allowedTags, true)) {
+                    while ($child->firstChild) {
+                        $node->insertBefore($child->firstChild, $child);
+                    }
+                    $node->removeChild($child);
+
+                    continue;
+                }
+
+                foreach (iterator_to_array($child->attributes) as $attr) {
+                    $name = strtolower($attr->name);
+                    $value = $attr->value;
+                    $keep = false;
+
+                    if ($name === 'href' && $tag === 'a') {
+                        $keep = preg_match('/^\s*(https?:|mailto:|tel:)/i', $value) === 1;
+                    } elseif (in_array($name, ['target', 'rel'], true) && $tag === 'a') {
+                        $keep = true;
+                    } elseif ($name === 'class') {
+                        $keep = preg_match('/^[\w\- ]*$/', $value) === 1;
+                    } elseif ($name === 'style') {
+                        $safe = [];
+                        foreach (explode(';', $value) as $declaration) {
+                            [$prop, $val] = array_pad(explode(':', $declaration, 2), 2, '');
+                            $prop = strtolower(trim($prop));
+                            $val = trim($val);
+                            if (in_array($prop, $allowedStyles, true) && preg_match('/^[\w\s#%.,()\-]+$/', $val) === 1 && stripos($val, 'url') === false && stripos($val, 'expression') === false) {
+                                $safe[] = $prop.': '.$val;
+                            }
+                        }
+                        if ($safe) {
+                            $child->setAttribute('style', implode('; ', $safe));
+                            $keep = true;
+                        }
+                    }
+
+                    if (! $keep) {
+                        $child->removeAttribute($attr->name);
+                    }
+                }
+
+                if ($tag === 'a' && $child->hasAttribute('href')) {
+                    $child->setAttribute('rel', 'noopener noreferrer');
+                }
+            }
+        };
+
+        $root = $doc->getElementById('sanitize-root') ?? $doc->documentElement;
+        $clean($root);
+
+        $out = '';
+        foreach ($root->childNodes as $child) {
+            $out .= $doc->saveHTML($child);
+        }
+
+        return $out;
+    }
+}
+
+if (! function_exists('sanitize_redirect_url')) {
+    /**
+     * Only absolute http(s) URLs may be used as a post-submission redirect.
+     */
+    function sanitize_redirect_url($url): string
+    {
+        $url = is_string($url) ? trim($url) : '';
+        if ($url === '' || preg_match('/[\x00-\x1f]/', $url)) {
+            return '';
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) && filter_var($url, FILTER_VALIDATE_URL) ? $url : '';
+    }
+}

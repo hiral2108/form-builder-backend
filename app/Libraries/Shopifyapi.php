@@ -10,12 +10,20 @@ class Shopifyapi {
 
     public function __construct($config = array()) {
         if (isset($config['shop_domain'])) {
+            if (!self::isValidShopDomain($config['shop_domain'])) {
+                throw new \InvalidArgumentException('Invalid Shopify shop domain.');
+            }
             $this->name = "Shopifyapi";
             $this->shop_domain = $config['shop_domain'];
             $this->token = $config['token'];
             $this->api_key = $config['api_key'];
             $this->secret = $config['secret'];
         }
+    }
+
+    // Only *.myshopify.com hosts may ever receive requests (or the app secret) from this class
+    public static function isValidShopDomain($shop) {
+        return is_string($shop) && preg_match('/^[a-z0-9][a-z0-9\-]*\.myshopify\.com$/i', $shop) === 1;
     }
 
     // Get the URL required to request authorization
@@ -31,7 +39,12 @@ class Shopifyapi {
     public function getAccessToken($code) {
         // POST to  POST https://SHOP_NAME.myshopify.com/admin/oauth/access_token
         $url = "https://{$this->shop_domain}/admin/oauth/access_token";
-        $payload = "client_id={$this->api_key}&client_secret={$this->secret}&code=$code&expiring=1";
+        $payload = http_build_query([
+            'client_id' => $this->api_key,
+            'client_secret' => $this->secret,
+            'code' => $code,
+            'expiring' => 1,
+        ]);
         $response = $this->curlHttpApiRequest('POST', $url, '', $payload, array());
         $response = json_decode($response, true);
         return $response;

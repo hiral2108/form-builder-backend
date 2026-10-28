@@ -39,12 +39,12 @@ class LeadMailTemplate extends Mailable
         $fieldsHtml .= '<tbody>';
 
         foreach ($this->emailFields as $field) {
-            $name = htmlspecialchars($field['field_name'] ?? 'Field');
+            $name = htmlspecialchars(is_scalar($field['field_name'] ?? null) ? (string) $field['field_name'] : 'Field');
             $val = $field['value'] ?? '';
             if (is_array($val)) {
-                $val = implode(', ', $val);
+                $val = implode(', ', array_map(fn ($v) => is_scalar($v) ? (string) $v : '', $val));
             }
-            $val = htmlspecialchars((string) $val);
+            $val = htmlspecialchars(is_scalar($val) ? (string) $val : '');
 
             $fieldsHtml .= '<tr style="border-bottom: 1px solid #f1f5f9;">';
             $fieldsHtml .= '<td style="padding: 10px 0; font-weight: 600; width: 40%; color: #475569; vertical-align: top;">'.$name.'</td>';

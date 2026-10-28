@@ -20,3 +20,4 @@ Route::get('/', function () {
 
 Route::post('shopify/webhook',[ShopifyAuthLoginController::class,'uninstall'])->name('uninstall');
 Route::post('/shopify/webhooks/shop-update', [ShopifyAuthLoginController::class, 'shopUpdateWebhook'])->name('shopify.webhook.shop-update');
+Route::post('/shopify/webhooks/compliance', [ShopifyAuthLoginController::class, 'complianceWebhook'])->name('shopify.webhook.compliance');
