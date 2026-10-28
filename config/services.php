@@ -33,6 +33,10 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+        'webhook_url' => env('SLACK_WEBHOOK_URL'),
+        'channel' => env('SLACK_CHANNEL', '#dev-updates'),
+        'test_message' => env('TEST_MESSAGE', true),
+        'test_mail' => env('TEST_MAIL', true),
     ],
 
     'shopify' => [

@@ -6,6 +6,9 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
 #[Fillable([
@@ -71,6 +74,74 @@ class AdminUser extends Authenticatable implements JWTSubject
             'last_login_at' => 'date',
             'review_notice_at' => 'date',
         ];
+    }
+
+    /**
+     * Shopify "expiring" offline tokens (see Shopifyapi::getAccessToken, expiring=1)
+     * last about one hour. Refresh transparently whenever the token is read.
+     */
+    public function getTokenAttribute($value)
+    {
+        if (empty($value) || empty($this->attributes['refresh_token'] ?? null) || empty($this->attributes['token_expires_at'] ?? null)) {
+            return $value;
+        }
+
+        // Still valid for at least another minute
+        if (strtotime($this->attributes['token_expires_at'].' UTC') > time() + 60) {
+            return $value;
+        }
+
+        return $this->refreshShopifyToken() ?? $value;
+    }
+
+    public function refreshShopifyToken(): ?string
+    {
+        return Cache::lock('shopify-token-refresh-'.$this->getKey(), 15)->block(10, function () {
+            // Another request may have refreshed it while we waited for the lock
+            $fresh = static::query()->whereKey($this->getKey())->first(['token', 'refresh_token', 'token_expires_at']);
+            $freshRaw = $fresh ? $fresh->getRawOriginal() : [];
+            if (! empty($freshRaw['token_expires_at']) && strtotime($freshRaw['token_expires_at'].' UTC') > time() + 60) {
+                $this->attributes['token'] = $freshRaw['token'];
+                $this->attributes['refresh_token'] = $freshRaw['refresh_token'];
+                $this->attributes['token_expires_at'] = $freshRaw['token_expires_at'];
+
+                return $freshRaw['token'];
+            }
+
+            $refreshToken = $freshRaw['refresh_token'] ?? $this->attributes['refresh_token'];
+
+            $response = Http::asForm()->post("https://{$this->shop_url}/admin/oauth/access_token", [
+                'client_id' => config('services.shopify.key'),
+                'client_secret' => config('services.shopify.secret'),
+                'grant_type' => 'refresh_token',
+                'refresh_token' => $refreshToken,
+            ]);
+
+            if (! $response->successful() || ! $response->json('access_token')) {
+                Log::error('Shopify token refresh failed', [
+                    'shop' => $this->shop_url,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return null;
+            }
+
+            $expiresIn = $response->json('expires_in');
+            $values = [
+                'token' => $response->json('access_token'),
+                'refresh_token' => $response->json('refresh_token') ?? $refreshToken,
+                'token_expires_at' => $expiresIn ? gmdate('Y-m-d H:i:s', time() + (int) $expiresIn) : null,
+            ];
+
+            static::query()->whereKey($this->getKey())->update($values);
+            foreach ($values as $key => $val) {
+                $this->attributes[$key] = $val;
+                $this->original[$key] = $val;
+            }
+
+            return $values['token'];
+        });
     }
 
     /**

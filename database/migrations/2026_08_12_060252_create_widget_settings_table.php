@@ -17,6 +17,7 @@ return new class extends Migration
             $table->longText('form_style_setting')->nullable();
             $table->longText('display_rule_setting')->nullable();
             $table->longText('submission_setting')->nullable();
+            $table->longText('devices')->nullable();
             $table->longText('time_delay_setting')->nullable();
             $table->longText('scroll_based_setting')->nullable();
             $table->longText('page_rule_setting')->nullable();

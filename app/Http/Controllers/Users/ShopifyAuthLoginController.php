@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
 use App\Libraries\Shopifyapi;
+use App\Libraries\ShopifyApiException;
 use App\Mail\MailTemplate;
 use App\Models\AdminUser;
+use App\Models\CtaImage;
 use App\Models\EmailTemplate;
 use App\Models\Plan;
 use App\Models\RecurringPlanCharge;
@@ -15,6 +17,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use App\Models\Widget;
+use App\Models\WidgetSetting;
 
 class ShopifyAuthLoginController extends Controller
 {
@@ -241,8 +245,11 @@ class ShopifyAuthLoginController extends Controller
     public function checkWebhook($shop, $host): void
     {
         if (! $shop) {
-            echo 'Set cookies setting  "Always Allow " In safari browser. For  <a target="_blank" href="http://www.macworld.co.uk/how-to/mac/how-enable-cookies-mac-3462635/">enable cookies</a> in your browser and try again.';
-            exit;
+            // Was echo+exit — killed the whole HTTP response with raw HTML
+            // instead of letting the caller's normal JSON response continue.
+            Log::warning('checkWebhook called without a shop — likely a third-party-cookie issue in the merchant\'s browser');
+
+            return;
         }
 
         $adminUserData = AdminUser::where('shop_url', $shop)->first();
@@ -262,6 +269,7 @@ class ShopifyAuthLoginController extends Controller
         $id = $user->id;
         $userData = AdminUser::find($id);
         $userData->shop_owner_name = $shopdata['shop_owner'];
+        $userData->name = $shopdata['shop_owner'];
         $userData->shop_hash = md5(base64_encode(md5($shop)));
         $userData->domain = $shopdata['domain'];
         $userData->email = $shopdata['email'];
@@ -319,7 +327,10 @@ class ShopifyAuthLoginController extends Controller
                 $shopifyapi->call('POST', '/admin/api/'.config('services.shopify.version').'/webhooks.json', $webhookUninstall, $token);
             }
         } catch (ShopifyApiException $e) {
-
+            Log::warning('Failed to register uninstall webhook', [
+                'shop' => $shop,
+                'response' => $e->getResponse(),
+            ]);
         }
 
         $webhookShopUpdateURL = route('shopify.webhook.shop-update');
@@ -476,23 +487,23 @@ class ShopifyAuthLoginController extends Controller
         $updateData->current_charges = 0;
         $updateData->update();
 
-        //        $widgetData = Widget::where('user_id',$shopId)->where('is_deleted', 0)->get();
-        //
-        //        foreach($widgetData as $widget) {
-        //            $widget->is_deleted = 1;
-        //            $widget->deleted_by = $shopId;
-        //            $widget->deleted_at = now();
-        //            $widget->update();
-        //
-        //            $currentWidgetSettings = WidgetSetting::where('widget_id',$widget->unique_id)->first();
-        //            $ctaIconSetting = json_decode($currentWidgetSettings->cta_icon_setting, true);
-        //            $existingImage = ChannelImage::where('img_name', $ctaIconSetting['custom_cta_file'])->where('shop_id', $storeData->id)->first();
-        //            if($existingImage) {
-        //                $existingImage->is_used = 0;
-        //                $existingImage->updated_at = now();
-        //                $existingImage->update();
-        //            }
-        //        }
+        $widgetData = Widget::where('user_id',$shopId)->where('is_deleted', 0)->get();
+
+        foreach($widgetData as $widget) {
+            $widget->is_deleted = 1;
+            $widget->deleted_by = $shopId;
+            $widget->deleted_at = now();
+            $widget->update();
+
+            $currentWidgetSettings = WidgetSetting::where('widget_id',$widget->unique_id)->first();
+            $displayRuleSetting = json_decode($currentWidgetSettings->display_rule_setting, true);
+            $existingImage = CtaImage::where('img_name', $displayRuleSetting['custom_cta_file'])->where('shop_id', $storeData->id)->first();
+            if($existingImage) {
+                $existingImage->is_used = 0;
+                $existingImage->updated_at = now();
+                $existingImage->update();
+            }
+        }
 
         return response()->json(['status' => 1]);
 
@@ -533,7 +544,7 @@ class ShopifyAuthLoginController extends Controller
 
     /**
      * Upsert BOTH app metafield + shop metafield:
-     * namespace: fb, key: fb_id, type: json
+     * namespace: fba, key: fba_id, type: json
      */
     private function syncFBMetafields(string $shop, string $token, string $userIdentifier): void
     {
@@ -557,8 +568,8 @@ GQL);
         if ($appOwnerId) {
             $metafields[] = [
                 'ownerId' => $appOwnerId,
-                'namespace' => 'fb',
-                'key' => 'fb_id',
+                'namespace' => 'fba',
+                'key' => 'fba_id',
                 'type' => 'json',
                 'value' => $value,
             ];
@@ -567,8 +578,8 @@ GQL);
         if ($shopOwnerId) {
             $metafields[] = [
                 'ownerId' => $shopOwnerId,
-                'namespace' => 'fb',
-                'key' => 'fb_id',
+                'namespace' => 'fba',
+                'key' => 'fba_id',
                 'type' => 'json',
                 'value' => $value,
             ];

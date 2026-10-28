@@ -70,9 +70,7 @@ class Shopifyapi {
         $response = json_decode($response, true);
 
 //        print_r($response['errors']);exit;
-//        if (isset($response['errors']) or ( $this->last_response_headers['http_status_code'] >= 400)) {
-        if (isset($response['errors']) or ( $this->last_response_headers['http_status_message'] >= 400)) {
-//            echo "<pre>";print_r($response);echo "</pre>";exit;
+        if (isset($response['errors']) or ( (int) $this->last_response_headers['http_status_code'] >= 400)) {
             throw new ShopifyApiException($method, $path, $params, $this->last_response_headers, $response);
         }
         return (is_array($response) and ( count($response) > 0)) ? array_shift($response) : $response;
@@ -176,7 +174,7 @@ class Shopifyapi {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         curl_setopt($ch, CURLOPT_USERAGENT, 'HAC');
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 500);
@@ -292,8 +290,7 @@ class Shopifyapi {
 
 
 
-//        if (isset($response['errors']) or ( $this->last_response_headers['http_status_code'] >= 400)) {
-        if (isset($response['errors']) or ( $this->last_response_headers['http_status_message'] >= 400)) {
+        if (isset($response['errors']) or ( (int) $this->last_response_headers['http_status_code'] >= 400)) {
             throw new ShopifyApiException($method, $path, $params, $this->last_response_headers, $response);
         }
 
@@ -319,7 +316,7 @@ class ShopifyApiException extends Exception {
         $this->params = $params;
         $this->response_headers = $response_headers;
         $this->response = $response;
-        parent::__construct($response_headers['http_status_message'], $response_headers['http_status_message']);
+        parent::__construct($response_headers['http_status_message'] ?? 'Shopify API error', (int) ($response_headers['http_status_code'] ?? 0));
 
     }
 

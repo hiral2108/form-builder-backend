@@ -23,22 +23,23 @@ class UpgradedPlanMailTemplate extends Mailable
      * Create a new message instance.
      */
     public function __construct(
-        protected array $upgradedMailTemplate,
-        protected ?array $oldPlanDetails,
-        protected string $email,
-        protected string $unique_id
+        protected $upgradedMailTemplate,
+        protected string $newPlanName = '',
+        protected ?string $oldPlanName = null,
+        protected string $email = '',
+        protected string $unique_id = ''
     ) {
         $arr1 = ['[new_plan]', '[APP NAME]'];
-        $arr2 = [$this->upgradedMailTemplate['name'] ?? '', config('services.shopify.name') ?? ''];
+        $arr2 = [$this->newPlanName, config('services.shopify.name') ?? ''];
         $this->newSubject = str_replace($arr1, $arr2, $this->upgradedMailTemplate['upgraded_mail_title'] ?? '');
 
-        if (empty($this->oldPlanDetails)) {
+        if (empty($this->oldPlanName)) {
             $arr1 = ['from [current_plan] ', '[new_plan]', '[APP NAME]'];
-            $arr2 = ['', $this->upgradedMailTemplate['name'] ?? '', config('services.shopify.name') ?? ''];
+            $arr2 = ['', $this->newPlanName, config('services.shopify.name') ?? ''];
             $this->newContent = str_replace($arr1, $arr2, $this->upgradedMailTemplate['upgraded_mail_text'] ?? '');
         } else {
             $arr1 = ['[current_plan]', '[new_plan]', '[APP NAME]'];
-            $arr2 = [$this->oldPlanDetails['name'] ?? '', $this->upgradedMailTemplate['name'] ?? '', config('services.shopify.name') ?? ''];
+            $arr2 = [$this->oldPlanName, $this->newPlanName, config('services.shopify.name') ?? ''];
             $this->newContent = str_replace($arr1, $arr2, $this->upgradedMailTemplate['upgraded_mail_text'] ?? '');
         }
 

@@ -13,6 +13,7 @@ class WidgetSetting extends Model
         'form_style_setting',
         'display_rule_setting',
         'submission_setting',
+        'devices',
         'time_delay_setting',
         'scroll_based_setting',
         'page_rule_setting',

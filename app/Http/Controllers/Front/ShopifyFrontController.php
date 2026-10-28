@@ -37,12 +37,22 @@ class ShopifyFrontController extends Controller
             if (! empty($planData)) {
                 if ($userData->visitors < $planData->visitors) {
                     $widgets = Widget::where('created_by', $userData->id)->where('is_deleted', 0)->where('widget_status', 1)->get();
+                    $isProUser = ($userData->plan_id > 1);
+
                     foreach ($widgets as $key => $widget) {
-                        $checkPageRules = $this->checkForPageRules($widget['unique_id'], $currentUrl, $shopUrl);
+                        $checkPageRules = $this->checkForPageRules($widget['unique_id'], $currentUrl, $shopUrl, $isProUser);
                         $widgetSetting = WidgetSetting::where('widget_id', $widget['unique_id'])->first();
 
                         if ($checkPageRules && isset($widgetSetting)) {
                             $widgetData = $this->set_defaults($widgetSetting);
+
+                            // For Free Plan users, bypass Pro targeting rules
+                            if (! $isProUser) {
+                                $widgetData['page_rule_setting']['has_page_rule'] = 0;
+                                $widgetData['date_time_setting']['has_date_rule'] = 0;
+                                $widgetData['day_hour_setting']['has_day_hour_rule'] = 0;
+                                $widgetData['country_rule_setting']['has_country_rule'] = 0;
+                            }
 
                             $widgetData['id'] = $widget['unique_id'];
                             $widgetData['updated_at'] = strtotime($widget['updated_at']);
@@ -79,6 +89,7 @@ class ShopifyFrontController extends Controller
         $defaultFormStyleSetting = get_default_form_style_setting();
         $defaultDisplayRuleSetting = get_default_display_rule_setting();
         $defaultSubmissionSetting = get_default_submission_setting();
+        $defaultDeviceSetting = get_default_device_setting();
         $defaultTimeDelaySetting = get_default_time_delay_setting();
         $defaultScrollBasedSetting = get_default_scroll_based_setting();
         $defaultPageRuleSetting = get_default_page_rule_setting();
@@ -90,6 +101,7 @@ class ShopifyFrontController extends Controller
         $formStyleSetting = json_decode($widget->form_style_setting, true);
         $displayRuleSetting = json_decode($widget->display_rule_setting, true);
         $submissionSetting = json_decode($widget->submission_setting, true);
+        $deviceSetting = json_decode($widget->devices, true);
         $timeDelaySetting = json_decode($widget->time_delay_setting, true);
         $scrollBasedSetting = json_decode($widget->scroll_based_setting, true);
         $pageRuleSetting = json_decode($widget->page_rule_setting, true);
@@ -102,6 +114,7 @@ class ShopifyFrontController extends Controller
         $widgetDataSetting['form_style_setting'] = shortcode_atts($defaultFormStyleSetting, $formStyleSetting);
         $widgetDataSetting['display_rule_setting'] = shortcode_atts($defaultDisplayRuleSetting, $displayRuleSetting);
         $widgetDataSetting['submission_setting'] = shortcode_atts($defaultSubmissionSetting, $submissionSetting);
+        $widgetDataSetting['device_setting'] = shortcode_atts($defaultDeviceSetting, $deviceSetting);
         $widgetDataSetting['time_delay_setting'] = shortcode_atts($defaultTimeDelaySetting, $timeDelaySetting);
         $widgetDataSetting['scroll_based_setting'] = shortcode_atts($defaultScrollBasedSetting, $scrollBasedSetting);
         $widgetDataSetting['page_rule_setting'] = shortcode_atts($defaultPageRuleSetting, $pageRuleSetting);
@@ -112,8 +125,12 @@ class ShopifyFrontController extends Controller
         return $widgetDataSetting;
     }
 
-    public function checkForPageRules($widgetId, $currentUrl, $shopUrl)
+    public function checkForPageRules($widgetId, $currentUrl, $shopUrl, $isProUser = true)
     {
+        if (! $isProUser) {
+            return true;
+        }
+
         $widgetSettings = WidgetSetting::where('widget_id', $widgetId)->first();
         if (! empty($widgetSettings)) {
             $pageRuleSettings = json_decode($widgetSettings->page_rule_setting, true);

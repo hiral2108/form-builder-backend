@@ -104,28 +104,7 @@ class AuthController extends Controller
 
     public function get_user_data(Request $request)
     {
-        $response = [];
-        $bearer = $request->header('Authorization', '');
-
-        if (! $bearer) {
-            return response()->json(['error' => 'Unauthorized'], 401);
-        }
-
-        $token = preg_replace('/^Bearer\s+/i', '', $bearer);
-        if (! $token) {
-            return response()->json(['error' => 'Invalid token'], 401);
-        }
-
-        $userData = AdminUser::select(DB::raw('admin_users.*,user_tokens.user_token AS unique_key'))
-            ->leftJoin('user_tokens', 'user_tokens.shop_id', '=', 'admin_users.id')
-            ->where('user_tokens.user_token', $token)
-            ->first();
-
-        if (! $userData) {
-            return response()->json([
-                'error' => 'User not found or token is invalid',
-            ], 401);
-        }
+        $userData = $this->authUser($request);
 
         $response = [
             'id' => $userData->id,
@@ -136,8 +115,48 @@ class AuthController extends Controller
             'plan_id' => $userData->plan_id,
             'plan_type' => $userData->plan_type,
             'created_at' => $userData->created_at,
+            'host' => $userData->host,
         ];
 
         return response()->json($response);
+    }
+
+    /**
+     * Silently exchange a just-expired (but still within refresh_ttl) token
+     * for a new one, so a merchant using the app continuously past the JWT's
+     * TTL never gets bounced to a dead-end login screen. Deliberately NOT
+     * behind 'auth.token' middleware — that middleware rejects expired
+     * tokens outright via checkOrFail(), which is exactly the case this
+     * endpoint exists to handle.
+     */
+    public function refresh(Request $request)
+    {
+        $bearer = $request->header('Authorization', '');
+        if (! $bearer) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $oldToken = preg_replace('/^Bearer\s+/i', '', $bearer);
+
+        try {
+            $newToken = JWTAuth::setToken($oldToken)->refresh();
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'Unable to refresh token'], 401);
+        }
+
+        $userTokenRow = UserToken::where('user_token', $oldToken)->first();
+        if ($userTokenRow) {
+            $userTokenRow->user_token = $newToken;
+            $userTokenRow->save();
+        } else {
+            $subject = JWTAuth::setToken($newToken)->getPayload()->get('sub');
+            $userToken = new UserToken;
+            $userToken->user_token = $newToken;
+            $userToken->ip = $request->ip() ?? $_SERVER['REMOTE_ADDR'];
+            $userToken->shop_id = $subject;
+            $userToken->save();
+        }
+
+        return response()->json(['access_token' => $newToken], 200);
     }
 }
