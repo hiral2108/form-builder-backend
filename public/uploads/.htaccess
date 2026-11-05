@@ -1,0 +1,9 @@
+# Uploaded images only: never execute scripts from this directory.
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<FilesMatch "(?i)\.(php\d?|phtml|phar|pl|py|cgi|sh)$">
+    Require all denied
+</FilesMatch>
+Options -ExecCGI -Indexes
+RemoveHandler .php .phtml .phar

@@ -45,7 +45,13 @@ return [
         'scope' => env('SHOPIFY_APP_SCOPE'),
         'name' => env('SHOPIFY_APP_NAME'),
         'version' => env('API_VERSION'),
-        'graphic_version' => env('GRAPHICVERSION')
+        'graphic_version' => env('GRAPHICVERSION'),
+        'auth_url' => env('SHOPIFY_AUTH_URL'),
+        'extension_id' => env('EXTENSION_ID'),
+        'test_mode' => env('TEST_MODE'),
+        'trial_days' => env('TRIAL_DAYS'),
+        'frontend_url' => env('FRONTEND_URL'),
+        'image_url' => env('APP_IMAGE_URL'),
     ],
 
 ];

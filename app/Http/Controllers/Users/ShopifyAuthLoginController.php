@@ -11,6 +11,7 @@ use App\Models\CtaImage;
 use App\Models\EmailTemplate;
 use App\Models\Plan;
 use App\Models\RecurringPlanCharge;
+use App\Models\Submission;
 use App\Models\UserToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -19,227 +20,184 @@ use Illuminate\Support\Facades\Mail;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use App\Models\Widget;
 use App\Models\WidgetSetting;
+use App\Models\WidgetView;
 
 class ShopifyAuthLoginController extends Controller
 {
     public $newUserToken = '';
 
-    public function login(Request $request)
+    /**
+     * Max age (seconds) of a Shopify-signed embedded-app URL before it is rejected.
+     */
+    private const SIGNED_REQUEST_MAX_AGE = 300;
+
+    /**
+     * Verify the HMAC Shopify appends to signed query strings (OAuth callback, embedded app load).
+     */
+    private function verifyQueryHmac(Request $request): bool
     {
-
-        if ($request->boolean('embedded')) {
-            $data = $request->except('hmac');
-            $hmac = $request->input('hmac');
-            ksort($data);
-            $calculatedHMAC = hash_hmac('sha256', http_build_query($data), config('services.shopify.secret'));
-            if ($hmac === $calculatedHMAC) {
-                $shop = $request->input('shop');
-                $storeData = AdminUser::where('shop_url', $shop)->first();
-
-                // If they are on a legacy permanent token, redirect to OAuth to get an expiring token!
-                if ($storeData && empty($storeData->refresh_token)) {
-                    $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
-                    $shopifyapi = new Shopifyapi($params);
-                    $authorizeURL = $shopifyapi->getAuthorizeUrl(config('services.shopify.scope'), env('SHOPIFY_AUTH_URL'));
-
-                    return response()->json([
-                        'authorize_url' => $authorizeURL,
-                        'status' => 2,
-                    ]);
-                }
-
-                $storeData->last_login_at = date('Y-m-d', time());
-                $storeData->update();
-
-                $this->newUserToken = JWTAuth::fromUser($storeData);
-
-                $userToken = new UserToken;
-                $userToken->user_token = $this->newUserToken;
-                $userToken->ip = $_SERVER['REMOTE_ADDR'];
-                $userToken->shop_id = $storeData->id;
-                $userToken->save();
-
-                return response()->json([
-                    'access_token' => $this->newUserToken,
-                    'plan_id' => $storeData->plan_id,
-                    'status' => 1,
-                ]);
-            }
+        $hmac = $request->input('hmac');
+        if (! is_string($hmac) || $hmac === '') {
+            return false;
         }
 
-        if ($request->get('code')) {
-            date_default_timezone_set('UTC');
-            $code = $request->get('code');
-            $shop = $request->get('shop');
-            $host = $request->get('host');
+        $data = $request->except('hmac');
+        ksort($data);
 
-            $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
-            $shopifyapi = new Shopifyapi($params);
+        $calculated = hash_hmac('sha256', http_build_query($data), (string) config('services.shopify.secret'));
 
-            $tokenResponse = $shopifyapi->getAccessToken($code);
-            $token = is_array($tokenResponse) ? ($tokenResponse['access_token'] ?? '') : '';
-            $refreshToken = is_array($tokenResponse) ? ($tokenResponse['refresh_token'] ?? null) : null;
-            $expiresIn = is_array($tokenResponse) ? ($tokenResponse['expires_in'] ?? null) : null;
-            $tokenExpiresAt = $expiresIn ? date('Y-m-d H:i:s', time() + $expiresIn) : null;
-
-            $storeData = AdminUser::where('shop_url', $shop)->first();
-            if ($token != '') {
-
-                if (empty($storeData)) {
-
-                    $storeData = new AdminUser;
-                    $storeData->identifier = uniqid();
-                    $storeData->shop_url = $shop;
-                    $storeData->token = $token;
-                    $storeData->refresh_token = $refreshToken;
-                    $storeData->token_expires_at = $tokenExpiresAt;
-                    $storeData->created_at = now();
-                    $storeData->platform = 'shopify';
-                    $storeData->is_active = 1;
-                    $storeData->is_closed = 0;
-                    $storeData->review_notice_at = date('Y-m-d', strtotime('+14 days'));
-                    $storeData->host = $host;
-                    $storeData->last_login_at = date('Y-m-d', time());
-                    $storeData->save();
-
-                    $this->newUserToken = JWTAuth::fromUser($storeData);
-
-                    $userToken = new UserToken;
-                    $userToken->user_token = $this->newUserToken;
-                    $userToken->ip = $_SERVER['REMOTE_ADDR'];
-                    $userToken->shop_id = $storeData->id;
-                    $userToken->save();
-
-                } else {
-
-                    $storeData->token = $token;
-                    $storeData->refresh_token = $refreshToken;
-                    $storeData->token_expires_at = $tokenExpiresAt;
-                    $storeData->mail_status = 1;
-                    $storeData->is_active = 1;
-                    $storeData->is_closed = 0;
-                    $storeData->last_login_at = date('Y-m-d', time());
-                    $storeData->updated_at = now();
-                    $storeData->update();
-
-                    $this->newUserToken = JWTAuth::fromUser($storeData);
-
-                    $userToken = new UserToken;
-                    $userToken->user_token = $this->newUserToken;
-                    $userToken->ip = $_SERVER['REMOTE_ADDR'];
-                    $userToken->shop_id = $storeData->id;
-                    $userToken->save();
-                }
-            }
-
-        } elseif ($request->post('shop', true) || ($request->get('shop', true))) {
-
-            $shop = $request->input('shop');
-            $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
-
-            $shopifyapi = new Shopifyapi($params);
-
-            $authorizeURL = $shopifyapi->getAuthorizeUrl(config('services.shopify.scope'), env('SHOPIFY_AUTH_URL'));
-
-            return response()->json([
-                'authorize_url' => $authorizeURL,
-                'status' => 2,
-            ]);
-        }
-
-        return response()->json([
-            'message' => 'Invalid request',
-        ], 400);
+        return hash_equals($calculated, $hmac);
     }
 
-    public function addUser(Request $request)
+    /**
+     * A signed request is only valid shortly after Shopify issued it.
+     */
+    private function isFreshTimestamp(mixed $timestamp): bool
     {
-        if ($request->get('code')) {
-            date_default_timezone_set('UTC');
-            $code = $request->get('code');
-            $shop = $request->get('shop');
-            $host = $request->get('host');
+        if (! is_numeric($timestamp)) {
+            return false;
+        }
 
-            $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
-            $shopifyapi = new Shopifyapi($params);
+        return abs(time() - (int) $timestamp) <= self::SIGNED_REQUEST_MAX_AGE;
+    }
 
-            $tokenResponse = $shopifyapi->getAccessToken($code);
-            $token = is_array($tokenResponse) ? ($tokenResponse['access_token'] ?? '') : '';
-            $refreshToken = is_array($tokenResponse) ? ($tokenResponse['refresh_token'] ?? null) : null;
-            $expiresIn = is_array($tokenResponse) ? ($tokenResponse['expires_in'] ?? null) : null;
-            $tokenExpiresAt = $expiresIn ? date('Y-m-d H:i:s', time() + $expiresIn) : null;
+    private function issueUserToken(AdminUser $storeData): string
+    {
+        $token = JWTAuth::fromUser($storeData);
 
-            $storeData = AdminUser::where('shop_url', $shop)->first();
-            if ($token != '') {
+        $userToken = new UserToken;
+        $userToken->user_token = $token;
+        $userToken->ip = request()->ip();
+        $userToken->shop_id = $storeData->id;
+        $userToken->save();
 
-                if (empty($storeData)) {
+        return $token;
+    }
 
-                    $storeData = new AdminUser;
-                    $storeData->identifier = uniqid();
-                    $storeData->shop_url = $shop;
-                    $storeData->token = $token;
-                    $storeData->refresh_token = $refreshToken;
-                    $storeData->token_expires_at = $tokenExpiresAt;
-                    $storeData->created_at = now();
-                    $storeData->platform = 'shopify';
-                    $storeData->is_active = 1;
-                    $storeData->is_closed = 0;
-                    $storeData->review_notice_at = date('Y-m-d', strtotime('+14 days'));
-                    $storeData->host = $host;
+    public function login(Request $request)
+    {
+        $shop = $request->input('shop');
+        if (! Shopifyapi::isValidShopDomain($shop)) {
+            return response()->json(['message' => 'Invalid shop'], 400);
+        }
+
+        if ($request->boolean('embedded')) {
+            if ($this->verifyQueryHmac($request) && $this->isFreshTimestamp($request->input('timestamp'))) {
+                $storeData = AdminUser::where('shop_url', $shop)->first();
+
+                if ($storeData) {
+                    // If they are on a legacy permanent token, redirect to OAuth to get an expiring token!
+                    if (empty($storeData->refresh_token)) {
+                        $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
+                        $shopifyapi = new Shopifyapi($params);
+                        $authorizeURL = $shopifyapi->getAuthorizeUrl(config('services.shopify.scope'), config('services.shopify.auth_url'));
+
+                        return response()->json([
+                            'authorize_url' => $authorizeURL,
+                            'status' => 2,
+                        ]);
+                    }
+
                     $storeData->last_login_at = date('Y-m-d', time());
-                    $storeData->save();
-
-                    $this->newUserToken = JWTAuth::fromUser($storeData);
-
-                    $userToken = new UserToken;
-                    $userToken->user_token = $this->newUserToken;
-                    $userToken->ip = $_SERVER['REMOTE_ADDR'];
-                    $userToken->shop_id = $storeData->id;
-                    $userToken->save();
-
-                } else {
-
-                    $storeData->token = $token;
-                    $storeData->refresh_token = $refreshToken;
-                    $storeData->token_expires_at = $tokenExpiresAt;
-                    $storeData->mail_status = 1;
-                    $storeData->is_active = 1;
-                    $storeData->is_closed = 0;
-                    $storeData->last_login_at = date('Y-m-d', time());
-                    $storeData->updated_at = now();
                     $storeData->update();
 
-                    $this->newUserToken = JWTAuth::fromUser($storeData);
+                    $this->newUserToken = $this->issueUserToken($storeData);
 
-                    $userToken = new UserToken;
-                    $userToken->user_token = $this->newUserToken;
-                    $userToken->ip = $_SERVER['REMOTE_ADDR'];
-                    $userToken->shop_id = $storeData->id;
-                    $userToken->save();
+                    return response()->json([
+                        'access_token' => $this->newUserToken,
+                        'plan_id' => $storeData->plan_id,
+                        'status' => 1,
+                    ]);
                 }
-
-                $this->checkWebhook($shop, $host);
-
-                return response()->json([
-                    'access_token' => $this->newUserToken,
-                    'plan_id' => $storeData->plan_id,
-                    'status' => 1,
-                ]);
             }
-            $latestToken = UserToken::where('shop_id', $storeData->id)
-                ->orderByDesc('id')   // latest by auto-increment
-                ->first();
-
-            if ($latestToken) {
-                $token = $latestToken->user_token;
-            }
-
-            return response()->json([
-                'access_token' => $token,
-                'plan_id' => $storeData->plan_id,
-                'status' => 1,
-            ]);
         }
+
+        if ($request->get('code')) {
+            return $this->addUser($request);
+        }
+
+        $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
+        $shopifyapi = new Shopifyapi($params);
+        $authorizeURL = $shopifyapi->getAuthorizeUrl(config('services.shopify.scope'), config('services.shopify.auth_url'));
+
+        return response()->json([
+            'authorize_url' => $authorizeURL,
+            'status' => 2,
+        ]);
+    }
+
+    /**
+     * Completes the OAuth install: exchanges the Shopify-signed callback code for an access token.
+     */
+    public function addUser(Request $request)
+    {
+        $code = $request->input('code');
+        $shop = $request->input('shop');
+        $host = $request->input('host');
+
+        if (! $code || ! Shopifyapi::isValidShopDomain($shop)) {
+            return response()->json(['message' => 'Invalid request'], 400);
+        }
+
+        // The OAuth callback must carry Shopify's signature; a bare shop + code is not enough.
+        if (! $this->verifyQueryHmac($request) || ! $this->isFreshTimestamp($request->input('timestamp'))) {
+            return response()->json(['message' => 'Invalid request signature'], 401);
+        }
+
+        date_default_timezone_set('UTC');
+
+        $params = ['shop_domain' => $shop, 'token' => '', 'api_key' => config('services.shopify.key'), 'secret' => config('services.shopify.secret')];
+        $shopifyapi = new Shopifyapi($params);
+
+        $tokenResponse = $shopifyapi->getAccessToken($code);
+        $token = is_array($tokenResponse) ? ($tokenResponse['access_token'] ?? '') : '';
+        $refreshToken = is_array($tokenResponse) ? ($tokenResponse['refresh_token'] ?? null) : null;
+        $expiresIn = is_array($tokenResponse) ? ($tokenResponse['expires_in'] ?? null) : null;
+        $tokenExpiresAt = $expiresIn ? date('Y-m-d H:i:s', time() + $expiresIn) : null;
+
+        if ($token == '') {
+            // Shopify rejected the code. Never fall back to an existing session token.
+            return response()->json(['message' => 'Unable to authorize shop'], 401);
+        }
+
+        $storeData = AdminUser::where('shop_url', $shop)->first();
+
+        if (empty($storeData)) {
+            $storeData = new AdminUser;
+            $storeData->identifier = uniqid();
+            $storeData->shop_url = $shop;
+            $storeData->token = $token;
+            $storeData->refresh_token = $refreshToken;
+            $storeData->token_expires_at = $tokenExpiresAt;
+            $storeData->created_at = now();
+            $storeData->platform = 'shopify';
+            $storeData->is_active = 1;
+            $storeData->is_closed = 0;
+            $storeData->review_notice_at = date('Y-m-d', strtotime('+14 days'));
+            $storeData->host = $host;
+            $storeData->last_login_at = date('Y-m-d', time());
+            $storeData->save();
+        } else {
+            $storeData->token = $token;
+            $storeData->refresh_token = $refreshToken;
+            $storeData->token_expires_at = $tokenExpiresAt;
+            $storeData->mail_status = 1;
+            $storeData->is_active = 1;
+            $storeData->is_closed = 0;
+            $storeData->last_login_at = date('Y-m-d', time());
+            $storeData->updated_at = now();
+            $storeData->update();
+        }
+
+        $this->newUserToken = $this->issueUserToken($storeData);
+
+        $this->checkWebhook($shop, $host);
+
+        return response()->json([
+            'access_token' => $this->newUserToken,
+            'plan_id' => $storeData->plan_id,
+            'status' => 1,
+        ]);
     }
 
     public function checkWebhook($shop, $host): void
@@ -355,7 +313,7 @@ class ShopifyAuthLoginController extends Controller
             $shopifyapi->call('POST', '/admin/api/'.config('services.shopify.version').'/webhooks.json', $webhookShopUpdate, $token);
         }
 
-        $this->pushScriptTag($shop, $token);
+        $this->refreshThemeEmbedStatus($shop, $token);
 
         /* When Store Live Then change pro plan to free plan */
         $shopify_plan = $storeData->shopify_plan;
@@ -382,67 +340,20 @@ class ShopifyAuthLoginController extends Controller
         }
     }
 
-    public function pushScriptTag($shop, $token)
+    /**
+     * The storefront script is delivered by the theme app embed, so only its status is checked.
+     */
+    public function refreshThemeEmbedStatus($shop, $token): void
     {
-
-        $scriptUrl = env('SCRIPT_URL');
-        $normalizedUrl = trim($scriptUrl);
-
-        // Remove old duplicates (or all existing same-src tags)
-        $this->removeScriptTagsBySrc($shop, $token, $scriptUrl);
-
-        //        if (!$this->scriptTagExists($shop, $token, $normalizedUrl)) {
-        //            $this->addScriptToShop($shop, $token, $normalizedUrl);
-        //        }
-
         check_theme_embeded_status($shop, $token);
-    }
-
-    private function removeScriptTagsBySrc(string $shop, string $accessToken, string $scriptUrl): void
-    {
-        $version = config('services.shopify.version');
-
-        $response = Http::withHeaders([
-            'X-Shopify-Access-Token' => $accessToken,
-            'Accept' => 'application/json',
-        ])->get("https://{$shop}/admin/api/{$version}/script_tags.json");
-
-        if (! $response->successful()) {
-            Log::warning('Failed to fetch script tags before cleanup', [
-                'shop' => $shop,
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-
-            return;
-        }
-
-        $tags = $response->json('script_tags', []);
-
-        foreach ($tags as $tag) {
-            $tagSrc = isset($tag['src']) ? trim($tag['src']) : '';
-            $tagId = $tag['id'] ?? null;
-
-            if ($tagId && $tagSrc === $scriptUrl) {
-                $deleteResp = Http::withHeaders([
-                    'X-Shopify-Access-Token' => $accessToken,
-                    'Accept' => 'application/json',
-                ])->delete("https://{$shop}/admin/api/{$version}/script_tags/{$tagId}.json");
-
-                if (! $deleteResp->successful()) {
-                    Log::warning('Failed to delete duplicate script tag', [
-                        'shop' => $shop,
-                        'script_tag_id' => $tagId,
-                        'status' => $deleteResp->status(),
-                        'body' => $deleteResp->body(),
-                    ]);
-                }
-            }
-        }
     }
 
     public function uninstall(Request $request)
     {
+        if (! $this->verifyWebhookHmac($request)) {
+            return response()->json(['error' => 'Invalid webhook signature'], 401);
+        }
+
         $shop = $request->header('X-Shopify-Shop-Domain');
 
         if (! $shop) {
@@ -450,14 +361,16 @@ class ShopifyAuthLoginController extends Controller
         }
 
         $storeData = AdminUser::where('shop_url', $shop)->first();
-        $token = $storeData->token;
+        if (! $storeData) {
+            return response()->json(['status' => 1]);
+        }
 
         if ($storeData->plan_id != 0 && $storeData->plan_id != '') {
             $planDetails = Plan::where('id', $storeData->plan_id)->first();
 
             $uninstallMessage = ':sob: Shopify: '.$storeData->shop_owner_name.' has uninstalled '.config('services.shopify.name');
             $title = $storeData->shop_owner_name.' has uninstalled '.config('services.shopify.name');
-            $text = "\nPlan: ".$planDetails->name."\n";
+            $text = "\nPlan: ".($planDetails->name ?? '')."\n";
             $text .= 'Email: '.$storeData->email."\n";
             $text .= 'Shop: '.$storeData->shop_url."\n";
             $text .= 'Visitors: '.$storeData->visitors."\n";
@@ -466,13 +379,11 @@ class ShopifyAuthLoginController extends Controller
 
             get_slack_message($uninstallMessage, $title, $text, $color);
         }
-        ?>
 
-        <?php
         // Send mail when user uninstall app
-        if (isset($storeData->id) && ! empty($storeData->email)) {
+        if (! empty($storeData->email)) {
             $email_templates = EmailTemplate::where('key', 'UNINSTALL_MAIL')->first();
-            if (! empty($email_templates) && env('TEST_MAIL')) {
+            if (! empty($email_templates) && config('services.slack.test_mail')) {
                 Mail::to($storeData->email)->send(new MailTemplate($email_templates, $storeData->email, $storeData->identifier));
             }
         }
@@ -487,18 +398,22 @@ class ShopifyAuthLoginController extends Controller
         $updateData->current_charges = 0;
         $updateData->update();
 
-        $widgetData = Widget::where('user_id',$shopId)->where('is_deleted', 0)->get();
+        // Sessions must not outlive the installation.
+        UserToken::where('shop_id', $shopId)->delete();
 
-        foreach($widgetData as $widget) {
+        $widgetData = Widget::where('user_id', $shopId)->where('is_deleted', 0)->get();
+
+        foreach ($widgetData as $widget) {
             $widget->is_deleted = 1;
             $widget->deleted_by = $shopId;
             $widget->deleted_at = now();
             $widget->update();
 
-            $currentWidgetSettings = WidgetSetting::where('widget_id',$widget->unique_id)->first();
-            $displayRuleSetting = json_decode($currentWidgetSettings->display_rule_setting, true);
-            $existingImage = CtaImage::where('img_name', $displayRuleSetting['custom_cta_file'])->where('shop_id', $storeData->id)->first();
-            if($existingImage) {
+            $currentWidgetSettings = WidgetSetting::where('widget_id', $widget->unique_id)->first();
+            $displayRuleSetting = $currentWidgetSettings ? json_decode($currentWidgetSettings->display_rule_setting, true) : null;
+            $ctaFile = is_array($displayRuleSetting) ? ($displayRuleSetting['custom_cta_file'] ?? null) : null;
+            $existingImage = $ctaFile ? CtaImage::where('img_name', $ctaFile)->where('shop_id', $storeData->id)->first() : null;
+            if ($existingImage) {
                 $existingImage->is_used = 0;
                 $existingImage->updated_at = now();
                 $existingImage->update();
@@ -507,6 +422,59 @@ class ShopifyAuthLoginController extends Controller
 
         return response()->json(['status' => 1]);
 
+    }
+
+    /**
+     * Mandatory privacy webhooks (customers/data_request, customers/redact, shop/redact).
+     */
+    public function complianceWebhook(Request $request)
+    {
+        if (! $this->verifyWebhookHmac($request)) {
+            return response()->json(['error' => 'Invalid webhook signature'], 401);
+        }
+
+        $topic = (string) $request->header('X-Shopify-Topic', '');
+        $shop = (string) ($request->input('shop_domain') ?: $request->header('X-Shopify-Shop-Domain', ''));
+        $storeData = AdminUser::where('shop_url', $shop)->first();
+
+        if (! $storeData) {
+            return response()->json(['ok' => true], 200);
+        }
+
+        if ($topic === 'customers/data_request') {
+            // Submissions are held on the merchant's behalf; the merchant can export them from the app.
+            Log::info('Shopify customers/data_request received', ['shop' => $shop]);
+        } elseif ($topic === 'customers/redact') {
+            $email = (string) data_get($request->all(), 'customer.email', '');
+            if ($email !== '') {
+                $like = '%'.addcslashes($email, '%_\\').'%';
+                $widgetIds = Widget::where('user_id', $storeData->id)->pluck('id');
+                Submission::whereIn('widget_id', $widgetIds)->where('fields', 'like', $like)->delete();
+            }
+        } elseif ($topic === 'shop/redact') {
+            $widgets = Widget::where('user_id', $storeData->id)->get();
+            foreach ($widgets as $widget) {
+                Submission::where('widget_id', $widget->id)->delete();
+                WidgetView::where('widget_id', $widget->id)->delete();
+                WidgetSetting::where('widget_id', $widget->unique_id)->delete();
+                $widget->delete();
+            }
+            CtaImage::where('shop_id', $storeData->id)->delete();
+            UserToken::where('shop_id', $storeData->id)->delete();
+            $storeData->token = '';
+            $storeData->refresh_token = null;
+            $storeData->email = null;
+            $storeData->shop_owner_name = null;
+            $storeData->name = null;
+            $storeData->address1 = null;
+            $storeData->address2 = null;
+            $storeData->city = null;
+            $storeData->zip = null;
+            $storeData->is_active = 0;
+            $storeData->update();
+        }
+
+        return response()->json(['ok' => true], 200);
     }
 
     /**

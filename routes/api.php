@@ -26,8 +26,8 @@ use Illuminate\Support\Facades\Log;
 |
 */
 
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 Route::post('/refresh-token', [AuthController::class, 'refresh']);
 
 Route::middleware(['auth.token'])->group(function () {
@@ -94,14 +94,8 @@ Route::get('/verify-token', function (Request $request) {
 
 });
 
-Route::get('/shopify/user-by-shop', function (Request $request) {
-    $shop = $request->query('shop');
-
-    $user = AdminUser::where('shop_url', $shop)->first();
-
-    if (!$user) {
-        return response()->json(null, 404);
-    }
+Route::middleware(['auth.token'])->get('/shopify/user-by-shop', function (Request $request) {
+    $user = $request->attributes->get('authUser');
 
     return response()->json([
         'email' => $user->email,
@@ -137,11 +131,11 @@ Route::get('/check_embed_status', function (Request $request) {
     ]);
 });
 
-Route::post('/shopify/auth', [ShopifyAuthLoginController::class, 'login'])->name('login');
-Route::post('/shopify/addUser', [ShopifyAuthLoginController::class, 'addUser']);
+Route::post('/shopify/auth', [ShopifyAuthLoginController::class, 'login'])->name('login')->middleware('throttle:20,1');
+Route::post('/shopify/addUser', [ShopifyAuthLoginController::class, 'addUser'])->middleware('throttle:20,1');
 
 Route::post('get_forms_data', [ShopifyFrontController::class, 'get_forms_data'])->name('get_forms_data');
-Route::post('submit_form', [ShopifyFrontController::class, 'submit_form'])->name('submit_form');
-Route::post('visitors', [ShopifyFrontController::class, 'update_visitors'])->name('visitors');
-Route::post('view_widget', [ShopifyFrontController::class, 'view_widget'])->name('view_widget');
-Route::post('click_widget', [ShopifyFrontController::class, 'click_widget'])->name('click_widget');
+Route::post('submit_form', [ShopifyFrontController::class, 'submit_form'])->name('submit_form')->middleware('throttle:20,1');
+Route::post('visitors', [ShopifyFrontController::class, 'update_visitors'])->name('visitors')->middleware('throttle:30,1');
+Route::post('view_widget', [ShopifyFrontController::class, 'view_widget'])->name('view_widget')->middleware('throttle:30,1');
+Route::post('click_widget', [ShopifyFrontController::class, 'click_widget'])->name('click_widget')->middleware('throttle:30,1');
