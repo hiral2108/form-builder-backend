@@ -325,6 +325,18 @@ class ShopifyFrontController extends Controller
         $saveToDatabase = $submissionSetting['saveToDatabase'] ?? true;
         $sendEmail = $submissionSetting['sendEmail'] ?? false;
 
+        if ($saveToDatabase) {
+            $duplicate = $this->findDuplicateUniqueEmail($widget, (array) $request->form_fields);
+            if ($duplicate) {
+                return response()->json([
+                    'status' => 0,
+                    'error_type' => 'unique_email',
+                    'field_id' => $duplicate['field_id'],
+                    'message' => $duplicate['message'],
+                ], 200);
+            }
+        }
+
         $submission = null;
         if ($saveToDatabase) {
             $submission = Submission::create([
@@ -362,6 +374,54 @@ class ShopifyFrontController extends Controller
             'message' => $saveToDatabase ? 'Submission saved successfully' : 'Submission processed successfully',
             'data' => $submission,
         ], 200);
+    }
+
+    /**
+     * For email fields configured with "unique email", reports whether this widget already holds a
+     * submission with the same address.
+     *
+     * @param  array<int, mixed>  $formFields
+     * @return array{field_id: string, message: string}|null
+     */
+    private function findDuplicateUniqueEmail(Widget $widget, array $formFields): ?array
+    {
+        $setting = WidgetSetting::where('widget_id', $widget->unique_id)->first();
+        $config = $setting ? (json_decode((string) $setting->form_field_setting, true) ?: []) : [];
+
+        foreach (($config['fields'] ?? []) as $field) {
+            if (($field['type'] ?? null) !== 'email' || (int) ($field['uniqueEmail'] ?? 0) !== 1) {
+                continue;
+            }
+
+            $label = (string) ($field['label'] ?? '');
+            $email = '';
+            foreach ($formFields as $submitted) {
+                if (is_array($submitted) && ($submitted['field_name'] ?? null) === $label && is_string($submitted['value'] ?? null)) {
+                    $email = strtolower(trim($submitted['value']));
+                    break;
+                }
+            }
+            if ($email === '') {
+                continue;
+            }
+
+            $needle = '%'.addcslashes(trim((string) json_encode($email), '"'), '%_\\').'%';
+            $candidates = Submission::where('widget_id', $widget->id)->where('fields', 'like', $needle)->limit(200)->get();
+
+            foreach ($candidates as $candidate) {
+                foreach ((array) $candidate->fields as $stored) {
+                    if (is_array($stored) && ($stored['field_name'] ?? null) === $label
+                        && is_string($stored['value'] ?? null) && strtolower(trim($stored['value'])) === $email) {
+                        return [
+                            'field_id' => (string) ($field['id'] ?? ''),
+                            'message' => (string) ($field['uniqueEmailErrorMessage'] ?: 'This email address is already registered'),
+                        ];
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

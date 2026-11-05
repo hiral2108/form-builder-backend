@@ -476,7 +476,7 @@ if (! function_exists('sanitize_rich_html')) {
             return '';
         }
 
-        $allowedTags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'span', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'div', 'sub', 'sup'];
+        $allowedTags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'span', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'div', 'sub', 'sup', 'img'];
         $dropWithContent = ['script', 'style', 'iframe', 'object', 'embed', 'svg', 'math', 'template', 'noscript', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base'];
         $allowedStyles = ['color', 'background-color', 'font-size', 'font-weight', 'font-style', 'text-align', 'text-decoration'];
 
@@ -524,6 +524,13 @@ if (! function_exists('sanitize_rich_html')) {
                         $keep = preg_match('/^\s*(https?:|mailto:|tel:)/i', $value) === 1;
                     } elseif (in_array($name, ['target', 'rel'], true) && $tag === 'a') {
                         $keep = true;
+                    } elseif ($name === 'src' && $tag === 'img') {
+                        // Images may only load over http(s) or be an inline raster image (never SVG).
+                        $keep = preg_match('#^[[:space:]]*(https?://|data:image/(png|jpe?g|gif|webp);base64,)#i', $value) === 1;
+                    } elseif ($name === 'alt' && $tag === 'img') {
+                        $keep = true;
+                    } elseif (in_array($name, ['width', 'height'], true) && $tag === 'img') {
+                        $keep = preg_match('/^[0-9]{1,4}%?$/', $value) === 1;
                     } elseif ($name === 'class') {
                         $keep = preg_match('/^[\w\- ]*$/', $value) === 1;
                     } elseif ($name === 'style') {
